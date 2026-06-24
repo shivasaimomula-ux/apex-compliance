@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-indigo-10: hsl(230, 80%, 98%);
+  --color-brand-indigo-30: hsl(230, 70%, 85%);
+  --color-brand-indigo-50: hsl(230, 60%, 55%);
+  --color-brand-indigo-70: hsl(230, 65%, 35%);
+  --color-brand-indigo-90: hsl(230, 55%, 15%);
+  --color-brand-indigo-95: hsl(230, 50%, 8%);
+
+  --color-brand-teal-30: hsl(175, 80%, 85%);
+  --color-brand-teal-50: hsl(175, 75%, 40%);
+  --color-brand-teal-70: hsl(175, 85%, 25%);
+
+  --color-brand-danger: hsl(355, 80%, 50%);
+  --color-brand-warning: hsl(38, 90%, 50%);
+  --color-brand-success: hsl(145, 70%, 40%);
+
+  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom design styles integrated with Tailwind CSS */
+@layer utilities {
+  .glass-card {
+    background-color: light-dark(rgba(255, 255, 255, 0.75), rgba(20, 25, 40, 0.65));
+    border: 1px solid light-dark(rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.08));
+    backdrop-filter: blur(18px);
+    border-radius: 14px;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 2px 10px -1px rgba(0, 0, 0, 0.04);
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                border-color 0.3s ease;
+  }
+  
+  .glass-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.15), 0 10px 20px -5px rgba(0, 0, 0, 0.1);
+    border-color: light-dark(rgba(0, 0, 0, 0.15), rgba(255, 255, 255, 0.15));
+  }
+
+  .score-ring-bg {
+    fill: none;
+    stroke: light-dark(rgba(0,0,0,0.05), rgba(255,255,255,0.05));
+    stroke-width: 10;
+  }
+  
+  .score-ring-fg {
+    fill: none;
+    stroke: var(--color-brand-teal-50);
+    stroke-width: 10;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+/* Theme variables driven by data-theme toggles */
+:root {
+  --bg-page: light-dark(hsl(230, 80%, 98%), hsl(210, 25%, 6%));
+  --text-main: light-dark(hsl(210, 20%, 12%), hsl(210, 20%, 98%));
+  --text-muted: light-dark(hsl(210, 10%, 50%), hsl(210, 10%, 50%));
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+/* Custom scanner beams animations */
+@keyframes laser-scanner {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(220px); }
+  100% { transform: translateY(0); }
+}
+
+.scan-beam-active {
+  animation: laser-scanner 2s infinite linear;
+}
+
+/* Custom spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-custom {
+  animation: spin 0.7s linear infinite;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "apex-compliance-platform-backend",
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "apex-compliance-platform-root": "file:..",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}
