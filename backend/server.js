@@ -215,7 +215,7 @@ function buildUserPrompt({ productName, documents, formText }) {
   return parts.join('\n');
 }
 
-app.post('/api/analyze', async (req, res) => {
+app.post(['/api/analyze', '/analyze'], async (req, res) => {
   if (!hasUsableKey()) {
     return res.status(503).json({
       error: 'no_api_key',
@@ -291,7 +291,7 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 // Health check — lets the frontend decide whether AI mode is available.
-app.get('/api/health', (_req, res) => {
+app.get(['/api/health', '/health'], (_req, res) => {
   res.json({ ok: true, aiEnabled: hasUsableKey(), model: MODEL });
 });
 
