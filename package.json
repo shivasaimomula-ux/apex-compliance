@@ -1,0 +1,17 @@
+{
+  "name": "apex-fda-compliance-platform",
+  "version": "1.1.0",
+  "description": "AI-Driven FDA Compliance Platform for Indian Ayurvedic & Nutraceutical Exporters",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vite --host 0.0.0.0 --port 5173"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0"
+  }
+}

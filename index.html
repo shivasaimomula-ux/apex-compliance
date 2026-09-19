@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI-Driven FDA, EU & Gulf Compliance Platform for Indian Ayurvedic & Nutraceutical Exporters. Recalculate RDA%, reframe botanical claims, and check export readiness.">
+  <title>APEX Compliance — AI-Driven Multi-Market Export Compliance for Ayurvedic Exporters</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕉️</text></svg>">
+
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    try {
+      var savedTheme = localStorage.getItem('apex_theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+      }
+    } catch (e) { /* private mode / blocked storage */ }
+  </script>
+  <link rel="stylesheet" href="index.css">
+  <!-- PDF.js for live PDF text extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+  <!-- Legal Disclaimer Modal (shown once on first load) -->
+  <div id="disclaimer-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-icon">⚖️</span>
+        <h2 id="modal-title">Legal Disclaimer</h2>
+      </div>
+      <div class="modal-body">
+        <p>APEX Compliance is an <strong>informational research tool only</strong>. It is not a substitute for licensed regulatory, legal, or scientific counsel.</p>
+        <ul style="list-style: disc; padding-left: 1.5rem; margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <li>Regulatory determinations shown are based on mock data and publicly available FDA guidance documents.</li>
+          <li>Always consult a qualified FDA regulatory attorney or DSHEA-registered consultant before exporting products to the United States.</li>
+          <li>Compliance scores are illustrative and do not constitute a legal opinion or FDA clearance.</li>
+          <li>California Prop 65 calculations are estimates; engage a certified industrial hygienist for binding assessments.</li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button id="disclaimer-accept-btn" class="btn btn-primary" style="width:100%">I Understand — Enter Platform</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- Mobile Overlay for sidebar -->
+    <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true"></div>
+
+    <!-- Sidebar Navigation Drawer -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-top">
+        <div class="brand-logo">
+          <span class="brand-logo-icon">🕉️</span>
+          <div class="brand-name">APEX<br><span style="color: var(--accent); font-size: 0.8em;">Compliance</span></div>
+        </div>
+
+        <nav class="nav-menu">
+          <div class="nav-item active" data-view="dashboard" id="nav-dashboard">
+            <span class="nav-item-icon">📊</span>
+            <span>Dashboard</span>
+          </div>
+          <div class="nav-item" data-view="parsing" id="nav-parsing">
+            <span class="nav-item-icon">📂</span>
+            <span>Document Audit</span>
+          </div>
+          <div class="nav-item" data-view="classification" id="nav-classification">
+            <span class="nav-item-icon">⚖️</span>
+            <span>Product Classification</span>
+          </div>
+          <div class="nav-item" data-view="translation" id="nav-translation">
+            <span class="nav-item-icon">🔄</span>
+            <span>Claim Translator</span>
+          </div>
+          <div class="nav-item" data-view="crosswalk" id="nav-crosswalk">
+            <span class="nav-item-icon">🗂️</span>
+            <span>Terminology Crosswalk</span>
+          </div>
+          <div class="nav-item" data-view="markets" id="nav-markets">
+            <span class="nav-item-icon">🌏</span>
+            <span>Market Regulations</span>
+          </div>
+          <div class="nav-item" data-view="rag" id="nav-rag">
+            <span class="nav-item-icon">🔍</span>
+            <span>RAG Explorer</span>
+          </div>
+        </nav>
+      </div>
+
+      <div class="user-footer">
+        <div class="user-avatar" id="user-avatar-initials">SM</div>
+        <div class="user-info">
+          <span class="user-name" id="user-display-name" contenteditable="true" title="Click to edit name" spellcheck="false">S. Momula</span>
+          <span class="user-role">Global Trade Director</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Container -->
+    <main class="app-main">
+
+      <!-- Top Action Bar -->
+      <header class="app-bar">
+        <!-- Mobile hamburger -->
+        <button class="hamburger-btn" id="hamburger-btn" aria-label="Open navigation menu">
+          <span></span><span></span><span></span>
+        </button>
+
+        <h1 class="page-title" id="current-page-title">Compliance Dashboard &amp; Executive Summary</h1>
+
+        <div class="app-bar-controls">
+          <!-- Download Report Button -->
+          <button class="btn btn-secondary" id="btn-download-report" style="min-block-size: 36px; padding: 0 1rem; font-size: var(--fs-xs);" title="Download compliance report">
+            ⬇️ Export Report
+          </button>
+
+          <!-- Theme toggle -->
+          <div class="theme-toggle-container">
+            <input type="checkbox" id="theme-toggle-input" class="theme-toggle-input" aria-label="Use dark theme">
+            <label for="theme-toggle-input" class="theme-label" title="Switch between light and dark theme">
+              <span style="font-size:0.75rem; margin-left: 6px;">🌙</span>
+              <span style="font-size:0.75rem; margin-right: 6px;">☀️</span>
+              <span class="theme-thumb"></span>
+            </label>
+          </div>
+        </div>
+      </header>
+
+      <!-- Panel views switcher -->
+      <div class="view-panel-container">
+
+        <!-- 1. DASHBOARD VIEW -->
+        <section class="view-panel active" id="view-dashboard" aria-label="Compliance Summary">
+          <div class="dashboard-grid">
+
+            <!-- Overall Score Ring Gauge Widget -->
+            <div class="glass-card" style="display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 1rem;">
+              <h3 id="readiness-score-heading" style="font-size: var(--fs-md); font-weight:700">Export Readiness Score</h3>
+              <div class="score-gauge-container">
+                <svg viewBox="0 0 140 140" style="inline-size: 100%; aspect-ratio: 1;">
+                  <circle cx="70" cy="70" r="60" class="score-ring-bg"></circle>
+                  <circle cx="70" cy="70" r="60" class="score-ring-fg" id="dashboard-ring-fg" stroke-dasharray="376.99" stroke-dashoffset="147.0"></circle>
+                </svg>
+                <div class="score-text">
+                  <span id="dashboard-score-num" style="font-size: 1.8rem; font-weight:800;">61</span>
+                  <span class="score-label">FRS Index</span>
+                </div>
+              </div>
+              <div>
+                <h4 id="dashboard-score-band" style="color: var(--clr-warning-50); font-size: var(--fs-md); font-weight:800; margin-bottom: 0.25rem;">CONDITIONAL READY</h4>
+                <p id="dashboard-score-desc" style="font-size: var(--fs-xs);">Moderate gaps detected. Resolve high items before exporting.</p>
+              </div>
+            </div>
+
+            <!-- Pillar Stats -->
+            <div class="glass-card" style="display: flex; flex-direction: column; gap: 1rem;">
+              <h3 style="font-size: var(--fs-md); font-weight:700">Readiness Pillars Breakdown</h3>
+              <div style="display: flex; flex-direction: column; gap: 0.85rem; font-size: var(--fs-sm);">
+
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:0.35rem">
+                  <span>⚖️ Product Classification (15%)</span>
+                  <strong id="pillar-score-classification" style="color: var(--clr-success-50);">100/100</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:0.35rem">
+                  <span>🏷️ Labeling Compliance (25%)</span>
+                  <strong id="pillar-score-labeling" style="color: var(--clr-warning-50);">60/100</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:0.35rem">
+                  <span>🧪 Ingredient Safety (25%)</span>
+                  <strong id="pillar-score-safety" style="color: var(--clr-warning-50);">40/100</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:0.35rem">
+                  <span>🏭 Manufacturing cGMP (20%)</span>
+                  <strong id="pillar-score-gmp" style="color: var(--clr-success-50);">90/100</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:0.35rem">
+                  <span>🚢 Import Admissibility (15%)</span>
+                  <strong id="pillar-score-import" style="color: var(--clr-danger-50);">0/100</strong>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Audit Info & Quick Actions -->
+            <div class="glass-card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
+              <div>
+                <h3 style="font-size: var(--fs-md); font-weight:700; margin-bottom: 0.5rem;">Audit Information</h3>
+                <p style="font-size:var(--fs-sm)">Currently Auditing:</p>
+                <strong id="dashboard-product-name" style="font-size: var(--fs-sm); color: var(--accent); display:block; margin-bottom: 0.75rem;">Ashwagandha Root Extract 500mg</strong>
+                <p style="font-size:var(--fs-sm)">Total Audited Gaps: <strong id="dashboard-violations-count" style="color: var(--clr-danger-50); font-size:1.1rem">3</strong></p>
+              </div>
+              <div style="display:flex; flex-direction:column; gap: 0.5rem;">
+                <button class="btn btn-primary" onclick="switchView('parsing')">📂 Audit New Document</button>
+                <button class="btn btn-secondary" onclick="switchView('classification')">⚖️ Run Classification</button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Priority Actions Remediation Checklist -->
+          <div class="glass-card">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span>🚨</span> Priority Action Plan &amp; Remediation Tasks
+            </h2>
+            <div id="dashboard-remediation-list"></div>
+          </div>
+        </section>
+
+        <!-- 2. DOCUMENT AUDIT VIEW -->
+        <section class="view-panel" id="view-parsing" aria-label="Document Verification">
+          <div class="glass-card">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 1rem;">Document Audit Panel</h2>
+            <p style="margin-bottom: 1.25rem; font-size:var(--fs-sm)">Choose a realistic Indian export-grade mock document to run the OCR scanning parser and compliance audit engine. Five documents are available.</p>
+
+            <!-- Always-visible target market (applies to AI analysis of uploads & pasted text).
+                 Product category lives in the Product Classification view. -->
+            <div style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1.25rem; padding:0.85rem 1rem; border:1px solid var(--border-color); border-radius:var(--radius-md); background:rgba(20,184,166,0.05);">
+              <div style="flex:1; min-inline-size:220px;">
+                <label for="target-market-select" style="display:block; font-size:var(--fs-xs); font-weight:700; color:var(--text-muted); margin-bottom:0.3rem;">🌍 Target export market</label>
+                <select id="target-market-select" style="width:100%; padding:0.55rem 0.75rem; font-size:var(--fs-sm); border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input, #0f172a); color:var(--text);">
+                  <option value="US">United States (FDA)</option>
+                  <option value="EU">European Union (EFSA)</option>
+                  <option value="UK">United Kingdom (MHRA / FSA)</option>
+                  <option value="GULF">Gulf / Oman (GSO / Oman MoH)</option>
+                  <option value="NZ">New Zealand (FSANZ / Medsafe)</option>
+                </select>
+              </div>
+              <div style="flex:1; min-inline-size:220px;">
+                <label for="ai-provider-select" style="display:block; font-size:var(--fs-xs); font-weight:700; color:var(--text-muted); margin-bottom:0.3rem;">🤖 AI engine</label>
+                <select id="ai-provider-select" style="width:100%; padding:0.55rem 0.75rem; font-size:var(--fs-sm); border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-input, #0f172a); color:var(--text);">
+                  <option value="">Loading engines…</option>
+                </select>
+              </div>
+            </div>
+            <p style="font-size:var(--fs-xs); color:var(--text-muted); margin:-0.5rem 0 1.25rem;">🏷️ Set the <strong>Product Category</strong> in the Product Classification tab.</p>
+
+            <!-- Tab switcher: Live Upload vs Mock Docs -->
+            <div class="upload-mode-tabs" style="display:flex; gap:0.5rem; margin-bottom:1.25rem;">
+              <button class="btn btn-primary upload-mode-tab" id="tab-live" data-mode="live">📤 Upload Your Document</button>
+              <button class="btn btn-secondary upload-mode-tab" id="tab-mock" data-mode="mock">🗂️ Use Demo Documents</button>
+            </div>
+
+            <!-- LIVE UPLOAD PANEL -->
+            <div id="live-upload-panel">
+              <!-- AI status badge -->
+              <div id="ai-status-badge" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:var(--fs-xs); padding:0.5rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:rgba(20,184,166,0.05);">
+                <span id="ai-status-dot" style="inline-size:9px; block-size:9px; border-radius:50%; background:var(--text-muted); flex-shrink:0;"></span>
+                <span id="ai-status-text">Checking AI analysis engine…</span>
+              </div>
+
+              <!-- Hidden file input (multiple = full dossier) -->
+              <input type="file" id="file-input-hidden" accept=".pdf,.txt,.csv" multiple style="display:none">
+
+              <div class="upload-drop-zone" id="upload-drop-zone">
+                <div class="scan-beam"></div>
+                <div class="upload-icon" id="dropzone-icon">📄</div>
+                <h3 id="dropzone-title">Drag &amp; Drop Your Product Dossier Here</h3>
+                <p id="dropzone-hint" style="font-size:var(--fs-xs); margin-top:0.5rem; color:var(--text-muted)">Add one or more files — Label scans, CoA reports, Master Formulas. They're analyzed together as one product.</p>
+                <button class="btn btn-primary" id="browse-file-btn" style="margin-top:1.25rem; min-block-size:42px; padding:0 1.5rem; font-size:var(--fs-sm)">
+                  📁 Browse &amp; Add Files
+                </button>
+              </div>
+
+              <!-- Staged dossier files + AI analyze action -->
+              <div id="dossier-staging" style="display:none; margin-top:1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                  <strong style="font-size:var(--fs-sm)">📦 Dossier (<span id="dossier-count">0</span> document<span id="dossier-plural">s</span>)</strong>
+                  <button class="btn btn-secondary" id="dossier-clear-btn" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs)">Clear</button>
+                </div>
+                <div id="dossier-file-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.85rem;"></div>
+                <button class="btn btn-primary" id="analyze-dossier-btn" style="width:100%; min-block-size:46px; font-size:var(--fs-sm);">🤖 Analyze Full Dossier with AI</button>
+              </div>
+
+              <!-- Paste Text Fallback -->
+              <div style="margin-top:1.25rem;">
+                <button class="btn btn-secondary" id="toggle-paste-btn" style="min-block-size:38px; padding:0 1rem; font-size:var(--fs-xs); width:100%;">
+                  ✏️ Or Paste Document Text Manually (for images / scanned docs)
+                </button>
+                <div id="paste-text-panel" style="display:none; margin-top:0.75rem;">
+                  <div class="form-group">
+                    <label for="paste-text-input" style="font-size:var(--fs-xs)">Paste the extracted text from your label, CoA, or Master Formula below:</label>
+                    <textarea id="paste-text-input" class="input-control" style="min-block-size:180px; resize:vertical; font-family:monospace; font-size:var(--fs-xs);" placeholder="Paste label text, CoA table content, or Master Formula details here...&#10;&#10;Example: Product Name: Triphala Churna&#10;Ingredients: Haritaki 33%, Vibhitaki 33%, Amalaki 33%&#10;Claims: Relieves constipation and detoxifies the colon...&#10;Lead: 2.5 ppm, Arsenic: 0.9 ppm"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="paste-doc-name" style="font-size:var(--fs-xs)">Document Name (optional)</label>
+                    <input type="text" id="paste-doc-name" class="input-control" style="min-block-size:38px;" placeholder="e.g. Triphala_Label_v2.pdf">
+                  </div>
+                  <button class="btn btn-primary" id="analyze-paste-btn" style="width:100%; min-block-size:44px;">🔬 Analyze Pasted Text</button>
+                </div>
+              </div>
+
+              <!-- Processing Status -->
+              <div id="upload-processing-status" style="display:none; margin-top:1rem; padding:1rem; background:rgba(20,184,166,0.06); border:1px solid rgba(20,184,166,0.2); border-radius:var(--radius-md); text-align:center;">
+                <div class="spinner" style="margin:0 auto 0.75rem; border-color:rgba(20,184,166,0.3); border-top-color:var(--accent);"></div>
+                <p id="upload-status-text" style="font-size:var(--fs-sm); color:var(--accent); font-weight:600;">Extracting text from PDF...</p>
+              </div>
+            </div>
+
+            <!-- MOCK DOCS PANEL -->
+            <div id="mock-docs-panel" style="display:none;">
+              <p style="font-size:var(--fs-sm); margin-bottom:1rem;">Select a pre-loaded Indian export-grade document to see the full audit pipeline in action:</p>
+              <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom: 1.5rem;">
+                <button class="btn btn-secondary doc-select-btn" data-doc="label">🏷️ Chyawanprash Label</button>
+                <button class="btn btn-secondary doc-select-btn" data-doc="coa">📋 Ashwagandha CoA</button>
+                <button class="btn btn-secondary doc-select-btn" data-doc="mmf">🏭 Triphala MMR</button>
+                <button class="btn btn-secondary doc-select-btn" data-doc="shilajit">🪨 Shilajit Extract CoA</button>
+                <button class="btn btn-secondary doc-select-btn" data-doc="asava">🍶 Dashamularishta Label</button>
+              </div>
+              <div class="upload-drop-zone" id="upload-drop-zone" style="padding:2rem 1.5rem;">
+                <div class="scan-beam"></div>
+                <div class="upload-icon">📂</div>
+                <h3 style="font-size:var(--fs-md)">Select a demo document above</h3>
+                <p id="dropzone-hint" style="font-size:var(--fs-xs); margin-top:0.5rem">Or switch to "Upload Your Document" to analyze your own files.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="dual-panel-grid" id="parsing-details-card">
+
+            <div class="glass-card" style="display: flex; flex-direction: column; gap: 1rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom: 0.75rem;">
+                <h3 id="parsing-doc-name" style="font-size: var(--fs-sm);">Ashwagandha_Root_Extract_COA_ASH-2026.pdf</h3>
+                <span class="badge badge-low" id="parsing-doc-type">Certificate of Analysis (CoA)</span>
+              </div>
+
+              <div style="display:flex; gap:0.5rem; margin-bottom: 0.5rem; flex-wrap:wrap;">
+                <button class="btn btn-primary doc-tab-btn" data-tab="raw" style="min-block-size:36px; padding:0 1rem; font-size:var(--fs-xs)">📝 Raw Text</button>
+                <button class="btn btn-secondary doc-tab-btn" data-tab="schema" style="min-block-size:36px; padding:0 1rem; font-size:var(--fs-xs)">💻 JSON Schema</button>
+                <button class="btn btn-secondary doc-tab-btn" data-tab="gaps" style="min-block-size:36px; padding:0 1rem; font-size:var(--fs-xs)">❌ Gaps Found</button>
+              </div>
+
+              <div id="doc-tab-content-raw" style="font-size: var(--fs-sm);"></div>
+              <div id="doc-tab-content-schema" style="font-size: var(--fs-sm); display:none"></div>
+              <div id="doc-tab-content-gaps" style="font-size: var(--fs-sm); display:none"></div>
+            </div>
+
+            <div class="glass-card" style="display: flex; flex-direction: column; gap: 1.25rem;">
+              <h3 style="border-bottom:1px solid var(--border-color); padding-bottom: 0.75rem;">Audit Meta Information</h3>
+
+              <div>
+                <span style="font-size:var(--fs-xs); color:var(--text-muted); font-weight:600; text-transform:uppercase; display:block;">File UUID</span>
+                <strong id="parsing-doc-size" style="font-family:monospace; font-size:var(--fs-sm)">DOC-COA-02</strong>
+              </div>
+              <div>
+                <span style="font-size:var(--fs-xs); color:var(--text-muted); font-weight:600; text-transform:uppercase; display:block;">Audit Speed</span>
+                <strong style="color:var(--accent); font-size:var(--fs-sm)">0.64 seconds (Celery async job complete)</strong>
+              </div>
+              <div>
+                <span style="font-size:var(--fs-xs); color:var(--text-muted); font-weight:600; text-transform:uppercase; display:block;">Rules Checked</span>
+                <p style="font-size:var(--fs-sm)">Passed ingredients against FDA GRAS notices, NDI notification registers, Import Alert 54-15 detention registries, and OEHHA Prop 65 lists.</p>
+              </div>
+              <hr style="border:0; border-top:1px solid var(--border-color)">
+              <div style="background: rgba(20, 184, 166, 0.05); padding: 1rem; border-radius: var(--radius-md); border: 1px dashed var(--accent);">
+                <h4 style="color:var(--accent); font-weight:700; margin-bottom:0.5rem">💡 Next Step</h4>
+                <p style="font-size:var(--fs-xs)">Use the <strong>RAG Explorer</strong> tab to immediately generate formal response templates (FDA Form 483 response, Prop 65 warning layouts) mapping directly to the gaps discovered above.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. PRODUCT CLASSIFICATION VIEW -->
+        <section class="view-panel" id="view-classification" aria-label="Regulatory Categorization">
+          <div class="dual-panel-grid">
+
+            <div class="glass-card">
+              <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 1.5rem;">Classification Input Gate</h2>
+
+              <div class="form-group">
+                <label for="class-product-name">Product / Formulation Name</label>
+                <input type="text" id="class-product-name" class="input-control" value="Traditional Ayurvedic Chyawanprash Jam">
+                <span class="field-error" id="err-class-name"></span>
+              </div>
+              <div class="form-group">
+                <label for="product-category-select">🏷️ Product Category</label>
+                <select id="product-category-select" class="input-control">
+                  <option value="SUPPLEMENT">Nutraceutical / food supplement</option>
+                  <option value="AYUSH">AYUSH / Ayurvedic medicine</option>
+                  <option value="HERBAL">Herbal / botanical product</option>
+                  <option value="FOOD">Functional / conventional food</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="class-ingredients">Ingredients List (comma separated)</label>
+                <textarea id="class-ingredients" class="input-control" style="min-block-size: 90px; resize: vertical;">Amalaki, Sugar, Honey, Ghee, Swarna Bhasma (Gold Ash), Pippali, Twak</textarea>
+                <span class="field-error" id="err-class-ingredients"></span>
+              </div>
+              <div class="form-group">
+                <label for="class-claims">Marketing Claims / Label Statements</label>
+                <textarea id="class-claims" class="input-control" style="min-block-size: 110px; resize: vertical;">Cures respiratory disorders and chronic asthma naturally. Builds 100% immunity against viral infections and seasonal coughs.</textarea>
+                <span class="field-error" id="err-class-claims"></span>
+              </div>
+              <div class="form-group">
+                <label for="class-dosage-form">Dosage Form</label>
+                <select id="class-dosage-form" class="input-control">
+                  <option value="capsule">Capsule / Softgel</option>
+                  <option value="tablet">Tablet / Pill</option>
+                  <option value="powder">Powder / Churna</option>
+                  <option value="paste" selected>Traditional Jam / Paste</option>
+                  <option value="beverage">Beverage / Fermented liquid</option>
+                  <option value="food_bar">Functional Food Bar</option>
+                </select>
+              </div>
+
+              <button class="btn btn-primary" id="class-btn-run" style="inline-size: 100%; margin-top:1rem">
+                <span id="class-btn-text">⚖️ Run Classification Cascade</span>
+                <span id="class-btn-spinner" class="spinner" style="display:none"></span>
+              </button>
+            </div>
+
+            <div class="glass-card" style="display: flex; flex-direction: column; gap: 1.5rem;">
+              <h2 style="font-size: var(--fs-lg); font-weight:700; border-bottom:1px solid var(--border-color); padding-bottom: 0.75rem;">Audit Verdict</h2>
+
+              <div style="text-align: center; padding: 1.5rem; background: rgba(0,0,0,0.015); border-radius: var(--radius-lg); border: 1px solid var(--border-color);">
+                <span class="badge badge-critical" id="class-result-badge" style="font-size:var(--fs-sm); padding:0.5rem 1.25rem;">UNAPPROVED NEW DRUG</span>
+                <h3 id="class-result-title" style="margin-top: 1rem; font-size: var(--fs-lg); font-weight: 800;">UNAPPROVED NEW DRUG</h3>
+                <span id="class-result-law" style="font-size: var(--fs-xs); color: var(--text-muted); display:block; margin-top:0.25rem">Governing Law: 21 USC §321(g)(1)(B), 21 CFR §310</span>
+              </div>
+
+              <p id="class-result-desc" style="font-size: var(--fs-sm)">Product makes explicit disease statements. Because no approved drug license exists, the product is classified as an unapproved new drug, subject to immediate customs detention.</p>
+
+              <hr style="border:0; border-top:1px solid var(--border-color)">
+
+              <h3 style="font-size: var(--fs-sm); font-weight: 700; text-transform: uppercase; color: var(--accent);">Deterministic Decision Steps</h3>
+              <div style="display:flex; flex-direction:column; gap:0.85rem; font-size:var(--fs-xs); color:var(--text-muted)">
+                <div id="class-step-1-status">Gate 1 — Intended Use Claim Extraction: <strong>❌ FAILED (Contains unapproved disease claims)</strong></div>
+                <div id="class-step-2-status">Gate 2 — Ingredient Status Lookup: <strong>❌ FAILED (Contains gold ash Bhasma)</strong></div>
+                <div id="class-step-3-status">Gate 3 — Dosage Form Validation: <strong>✅ Checked (Jam/Paste dosage form)</strong></div>
+                <div id="class-step-4-status">Gate 4 — Ayurvedic Specific Override Rules: <strong>❌ FAILED (Metallic ash prohibited)</strong></div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 4. TRANSLATOR & RECALCULATOR VIEW -->
+        <section class="view-panel" id="view-translation" aria-label="Claim Reframing">
+          <div class="dual-panel-grid">
+
+            <div class="glass-card" style="display:flex; flex-direction:column; gap: 1.25rem;">
+              <h2 style="font-size: var(--fs-lg); font-weight:700;">Claims Translation Engine</h2>
+              <p style="font-size:var(--fs-sm)">Indian Ayush and FSSAI claim structures are often highly clinical. Enter claims below to perform reframing into FDA structure/function compliant definitions.</p>
+
+              <div class="form-group">
+                <label for="trans-claims-input">Raw Exporter Claims</label>
+                <textarea id="trans-claims-input" class="input-control" style="min-block-size: 150px; resize: none;">Improves immunity to fight off winter infections</textarea>
+              </div>
+
+              <button class="btn btn-primary" id="trans-btn-run" style="inline-size:100%">🔄 Analyze &amp; Reframe Claims</button>
+
+              <div id="trans-results-container" style="display:flex; flex-direction:column; gap: 1rem; margin-top:1rem"></div>
+            </div>
+
+            <div class="glass-card" style="display:flex; flex-direction:column; gap: 1.25rem;">
+              <h2 style="font-size: var(--fs-lg); font-weight:700;">RDA Recalculation Engine</h2>
+              <p style="font-size:var(--fs-sm)">Indian FSSAI Recommended Dietary Allowances (RDA%) differ significantly from US FDA Daily Values (DV%). Recalculate weights based on 21 CFR §101.9.</p>
+
+              <div class="form-group">
+                <label for="trans-unit-type">Active Nutrient Compound</label>
+                <select id="trans-unit-type" class="input-control">
+                  <option value="vitamin_c">Vitamin C (US DV baseline: 90mg)</option>
+                  <option value="vitamin_d">Vitamin D (US DV baseline: 20mcg / 800 IU)</option>
+                  <option value="calcium">Calcium (US DV baseline: 1300mg)</option>
+                  <option value="zinc">Zinc (US DV baseline: 11mg)</option>
+                  <option value="iron">Iron (US DV baseline: 18mg)</option>
+                  <option value="vitamin_b12">Vitamin B12 (US DV baseline: 2.4mcg)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="trans-unit-amount">Ingredient Amount (in mg or mcg per serving)</label>
+                <input type="number" id="trans-unit-amount" class="input-control" value="45" min="0" step="0.1">
+              </div>
+              <div class="form-group">
+                <label for="trans-unit-rda">Indian FSSAI % RDA declared on label</label>
+                <input type="number" id="trans-unit-rda" class="input-control" value="112" min="0" step="1">
+              </div>
+
+              <button class="btn btn-secondary" id="trans-unit-btn">⚙️ Recalculate US Daily Value</button>
+              <div id="trans-unit-output" style="margin-top:1rem"></div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 5. TERMINOLOGY CROSSWALK VIEW -->
+        <section class="view-panel" id="view-crosswalk" aria-label="Terminology Crosswalk">
+          <div class="glass-card">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 0.5rem;">FSSAI / AYUSH → US FDA Terminology Crosswalk</h2>
+            <p style="margin-bottom: 1.5rem; font-size:var(--fs-sm)">Maps Indian regulatory product categories and ingredient types to their nearest US FDA equivalents, highlighting classification risk and required actions before export.</p>
+            <div style="display:flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap:wrap;">
+              <button class="btn btn-secondary crosswalk-filter-btn active-filter" data-filter="all">All Entries</button>
+              <button class="btn btn-secondary crosswalk-filter-btn" data-filter="CRITICAL">🔴 Critical</button>
+              <button class="btn btn-secondary crosswalk-filter-btn" data-filter="HIGH">🟠 High</button>
+              <button class="btn btn-secondary crosswalk-filter-btn" data-filter="MODERATE">🟡 Moderate</button>
+              <button class="btn btn-secondary crosswalk-filter-btn" data-filter="LOW">🟢 Low / Low-Moderate</button>
+            </div>
+            <div id="crosswalk-table-container"></div>
+          </div>
+        </section>
+
+        <!-- 6. MARKET REGULATIONS VIEW (per-country selector) -->
+        <section class="view-panel" id="view-markets" aria-label="Market Regulations by Country">
+          <div class="glass-card" style="margin-bottom: 0;">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 0.5rem;">🌏 Export Regulatory Guide</h2>
+            <p style="font-size:var(--fs-sm)">Select a destination market to see its specific compliance framework for Indian Ayurvedic &amp; nutraceutical exports.</p>
+          </div>
+
+          <!-- Country selector -->
+          <div id="market-tabs" role="tablist" aria-label="Select target market" style="display:flex; flex-wrap:wrap; gap:0.5rem; margin:1rem 0;">
+            <button class="btn market-tab" role="tab" data-market="US">🇺🇸 United States</button>
+            <button class="btn market-tab" role="tab" data-market="EU">🇪🇺 European Union</button>
+            <button class="btn market-tab" role="tab" data-market="UK">🇬🇧 United Kingdom</button>
+            <button class="btn market-tab" role="tab" data-market="GULF">🕌 Gulf / Oman</button>
+            <button class="btn market-tab" role="tab" data-market="NZ">🇳🇿 New Zealand</button>
+          </div>
+
+          <!-- Selected market's frameworks -->
+          <div>
+            <h3 id="market-regulations-heading" style="font-size: var(--fs-md); font-weight:700; display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem;"></h3>
+            <div id="market-regulations-container" style="display:flex; flex-direction:column; gap:1.25rem;"></div>
+          </div>
+
+          <!-- India pre-export checklist (applies to every destination) -->
+          <div style="margin-top:1.5rem;">
+            <h3 style="font-size: var(--fs-md); font-weight:700; display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem;">🇮🇳 India Pre-Export Requirements <span style="font-size:var(--fs-xs); font-weight:400; color:var(--text-muted)">(applies to all markets)</span></h3>
+            <div id="india-regulations-container" style="display:flex; flex-direction:column; gap:1.25rem;"></div>
+          </div>
+        </section>
+
+        <!-- 7. RAG KNOWLEDGE BASE & WARNING LETTER SEARCH -->
+        <section class="view-panel" id="view-rag" aria-label="Knowledge Base Explorer">
+          <div class="glass-card">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 1rem;">Regulatory RAG Search Engine</h2>
+            <p style="margin-bottom: 1.5rem; font-size:var(--fs-sm)">Query historical CFSAN Warning Letters, Import Alerts, and 21 CFR sections. Try: "lead", "identity testing", "unapproved claims", "dwpe", "ndi", "asava", "clinically proven".</p>
+
+            <div style="display:flex; gap: 0.75rem; flex-wrap:wrap;">
+              <input type="text" id="rag-search-input" class="input-control" placeholder="Search warning letters, CFR sections, or enforcement actions..." style="flex-grow:1">
+              <button class="btn btn-primary" id="rag-search-btn">🔍 Search DB</button>
+            </div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+              <span style="font-size:var(--fs-xs); color:var(--text-muted); align-self:center;">Quick search:</span>
+              <button class="btn btn-secondary rag-quick-btn" data-query="lead" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">lead</button>
+              <button class="btn btn-secondary rag-quick-btn" data-query="identity" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">identity</button>
+              <button class="btn btn-secondary rag-quick-btn" data-query="unapproved" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">unapproved</button>
+              <button class="btn btn-secondary rag-quick-btn" data-query="ndi" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">ndi</button>
+              <button class="btn btn-secondary rag-quick-btn" data-query="dwpe" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">dwpe</button>
+              <button class="btn btn-secondary rag-quick-btn" data-query="asava" style="min-block-size:30px; padding:0 0.75rem; font-size:var(--fs-xs);">asava</button>
+            </div>
+          </div>
+
+          <div class="dual-panel-grid">
+
+            <div style="display:flex; flex-direction:column; gap: 1.25rem;">
+              <h3 style="font-size: var(--fs-md); font-weight: 700; color:var(--text)">Search Results</h3>
+              <div id="rag-results-container" style="display:flex; flex-direction:column; gap:1rem">
+                <div class="glass-card" style="text-align: center; color:var(--text-muted)">
+                  Enter queries above to retrieve enforcement actions. Try "identity" or "metals" or "asava".
+                </div>
+              </div>
+            </div>
+
+            <div id="rag-remediation-drafts"></div>
+
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Footer -->
+      <footer style="text-align:center; padding: 2rem; border-top: var(--glass-border); margin-top: auto; font-size: var(--fs-xs); color: var(--text-muted);">
+        APEX Compliance Platform • Multi-market: US (FDA) · EU (EFSA) · UK (MHRA/FSA) · Gulf/Oman (GSO) · New Zealand (FSANZ/Medsafe) • Informational research tool — not a substitute for licensed regulatory or legal counsel
+      </footer>
+    </main>
+
+  </div>
+
+  <script src="mock_data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

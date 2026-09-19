@@ -1,0 +1,22 @@
+# Secrets & env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node
+node_modules/
+
+# Python (defensive)
+__pycache__/
+.venv/
+venv/
+
+# OS / IDE / junk
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.log
+untitled folder/
