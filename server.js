@@ -14,6 +14,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveProductCategory } from './lib/category-map.js';
+import {
+  applyDocumentCharLimit,
+  buildReadinessMeta,
+  DOC_CHAR_LIMIT,
+} from './lib/readiness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -452,7 +458,8 @@ function buildUserPrompt({ productName, documents, formText, marketLabel, catego
   if (Array.isArray(documents) && documents.length) {
     parts.push(`\n=== ${documents.length} DOCUMENT(S) IN DOSSIER ===`);
     documents.forEach((d, i) => {
-      const text = (d.text || '').slice(0, 20000);
+      // Documents are pre-truncated via applyDocumentCharLimit (surfaced on _meta).
+      const text = d.text || '';
       parts.push(`\n--- Document ${i + 1}: ${d.name || 'untitled'} ---\n${text}`);
     });
   }
@@ -553,11 +560,12 @@ app.post('/api/analyze', async (req, res) => {
     ? body.market
     : 'US';
   const marketLabel = MARKETS[market];
-  // Product category (optional; sets the expected regulatory lens).
-  const category = (typeof body.category === 'string' && CATEGORIES[body.category])
-    ? body.category
-    : null;
-  const categoryLabel = category ? CATEGORIES[category] : null;
+  // Product category: map A/C/glue vocabulary (e.g. dietary_supplement) → E keys.
+  const categoryResolution = resolveProductCategory(
+    typeof body.category === 'string' ? body.category : null,
+  );
+  const category = categoryResolution.category;
+  const categoryLabel = categoryResolution.categoryLabel;
   const hasDocs = Array.isArray(documents) && documents.some((d) => d && d.text && d.text.trim());
   if (!hasDocs && !(formText && formText.trim())) {
     return res.status(400).json({
@@ -566,8 +574,20 @@ app.post('/api/analyze', async (req, res) => {
     });
   }
 
+  const { documents: limitedDocs, truncation } = applyDocumentCharLimit(
+    Array.isArray(documents) ? documents : [],
+    DOC_CHAR_LIMIT,
+  );
+  const humanReviewApproved = body.humanReviewApproved === true;
+
   const system = buildSystemPrompt(market, category);
-  const userPrompt = buildUserPrompt({ productName, documents, formText, marketLabel, categoryLabel });
+  const userPrompt = buildUserPrompt({
+    productName,
+    documents: limitedDocs,
+    formText,
+    marketLabel,
+    categoryLabel,
+  });
 
   try {
     const result = provider === 'nvidia'
@@ -588,6 +608,13 @@ app.post('/api/analyze', async (req, res) => {
       return res.status(502).json({ error: 'parse_error', message: 'Could not parse the analysis output.' });
     }
 
+    const readiness = buildReadinessMeta({
+      violations: report.violations,
+      truncation,
+      categoryResolution,
+      humanReviewApproved,
+    });
+
     report._meta = {
       provider,
       model: result.model,
@@ -597,6 +624,7 @@ app.post('/api/analyze', async (req, res) => {
       marketLabel,
       category,
       categoryLabel,
+      ...readiness,
     };
     res.json(report);
   } catch (err) {
@@ -619,6 +647,9 @@ app.get('/api/health', (_req, res) => {
     providers: { anthropic: anthropicKeyOk(), nvidia: nvidiaKeyOk() },
     models: { anthropic: MODEL, nvidia: NVIDIA_MODEL },
     markets: MARKETS,
+    readinessContract: true,
+    docCharLimit: DOC_CHAR_LIMIT,
+    humanReviewGate: 'pending_t20',
   });
 });
 

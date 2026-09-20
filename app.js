@@ -604,7 +604,10 @@ document.addEventListener('DOMContentLoaded', () => {
       renderAiReport(data, docs);
       const mkt = data._meta?.marketLabel ? ` for ${data._meta.marketLabel}` : '';
       const cat = data._meta?.categoryLabel ? ` (${data._meta.categoryLabel})` : '';
-      setAiStatus('online', `Analysis complete${mkt}${cat} — ${data.violations.length} finding(s). Powered by ${data._meta?.model || 'Claude'}.`);
+      setAiStatus('online', `Analysis complete${mkt}${cat} — ${data.violations.length} finding(s)` +
+        (data._meta?.readinessScore != null ? ` · FRS ${data._meta.readinessScore} (${data._meta.bandLabel || data._meta.band})` : '') +
+        (data._meta?.pipelineReady ? ' · pipelineReady' : '') +
+        ` — ${data._meta?.model || 'AI'}.`);
     } catch (err) {
       setAiStatus('offline', `Analysis error: ${err.message}`);
       alert(`AI analysis failed: ${err.message}`);
@@ -622,7 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.lastReport = report;
     state.lastReportDocs = docs || [];
 
-    // --- Dashboard (reuses the readiness engine) ---
+    // --- Dashboard: consume server `_meta` readiness (pipeline truth) ---
     if (DOM.dashboardProductName) DOM.dashboardProductName.textContent = report.productName || 'Analyzed Product';
     // Reflect the analyzed market in the readiness-score heading.
     const headingEl = document.getElementById('readiness-score-heading');
@@ -630,8 +633,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const mkt = report._meta && report._meta.marketLabel;
       headingEl.textContent = mkt ? `Export Readiness Score — ${mkt}` : 'Export Readiness Score';
     }
-    const scoreReport = calculateFDAReadinessScore(violations);
+    const scoreReport = scoreReportFromMetaOrLocal(violations, report._meta);
     updateDashboardScores(scoreReport, violations);
+    if (scoreReport.truncated && DOM.dashboardScoreDesc) {
+      DOM.dashboardScoreDesc.textContent =
+        `${scoreReport.band.desc} ⚠ Dossier truncated before analysis — see _meta.truncation.`;
+    }
+    if (scoreReport.fromServer && scoreReport.humanReviewRequired && scoreReport.band.key === 'EXPORT_READY') {
+      DOM.dashboardScoreDesc.textContent =
+        `${scoreReport.band.desc} Human review required before export authorization (T20).`;
+    }
 
     // --- Document Audit panel ---
     const primary = (docs && docs[0]) || { name: report.productName, text: '' };
@@ -1326,6 +1337,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   // 14. FRS SCORE ENGINE
   // ==========================================================================
+  // Demo / offline docs may still compute locally. AI / pipeline reports MUST
+  // prefer server `_meta` (readinessScore / band / pipelineReady) — client math
+  // is not pipeline truth (Task T3 / Audit #6).
   const PILLAR_WEIGHTS = {
     product_classification: 0.15,
     labeling_compliance: 0.25,
@@ -1334,6 +1348,35 @@ document.addEventListener('DOMContentLoaded', () => {
     import_admissibility: 0.15
   };
   const SEVERITY_DEDUCTIONS = { CRITICAL: 1.00, HIGH: 0.60, MEDIUM: 0.30, LOW: 0.10 };
+  const BAND_COLORS = {
+    EXPORT_READY: 'var(--clr-success-50)',
+    CONDITIONAL_READY: 'var(--clr-warning-50)',
+    SIGNIFICANT_REMEDIATION: 'orange',
+    NOT_EXPORT_READY: 'var(--clr-danger-50)',
+  };
+
+  /** Prefer server `_meta` readiness; fall back to local calc for demo theater only. */
+  function scoreReportFromMetaOrLocal(violations, meta) {
+    if (meta && typeof meta.readinessScore === 'number' && meta.band) {
+      return {
+        score: meta.readinessScore,
+        band: {
+          key: meta.band,
+          label: meta.bandLabel || meta.band,
+          color: BAND_COLORS[meta.band] || 'var(--clr-warning-50)',
+          desc: meta.bandDesc || '',
+        },
+        pillarScores: meta.pillarScores || {},
+        fromServer: true,
+        pipelineReady: meta.pipelineReady === true,
+        exportAuthorized: meta.exportAuthorized === true,
+        humanReviewRequired: meta.humanReviewRequired !== false,
+        truncated: !!(meta.truncation && meta.truncation.truncated),
+      };
+    }
+    const local = calculateFDAReadinessScore(violations);
+    return { ...local, fromServer: false, pipelineReady: false };
+  }
 
   function calculateFDAReadinessScore(violations) {
     const pillarScores = { product_classification: 100, labeling_compliance: 100, ingredient_safety: 100, manufacturing_compliance: 100, import_admissibility: 100 };
@@ -1345,10 +1388,10 @@ document.addEventListener('DOMContentLoaded', () => {
     Object.keys(PILLAR_WEIGHTS).forEach(p => { totalScore += pillarScores[p] * PILLAR_WEIGHTS[p]; });
     totalScore = Math.round(totalScore);
     let band;
-    if (totalScore >= 85) band = { label: "EXPORT READY", color: "var(--clr-success-50)", desc: "Minor documentation gaps only. Proceed with FDA registration." };
-    else if (totalScore >= 65) band = { label: "CONDITIONAL READY", color: "var(--clr-warning-50)", desc: "Moderate gaps. Resolve HIGH items before shipping." };
-    else if (totalScore >= 40) band = { label: "SIGNIFICANT REMEDIATION REQUIRED", color: "orange", desc: "Major labeling/ingredient/cGMP gaps. 3–6 month remediation timeline required." };
-    else band = { label: "NOT EXPORT READY", color: "var(--clr-danger-50)", desc: "Critical violations present. Extremely high risk of customs detention or seizure." };
+    if (totalScore >= 85) band = { key: 'EXPORT_READY', label: "EXPORT READY", color: "var(--clr-success-50)", desc: "Minor documentation gaps only. Proceed with FDA registration." };
+    else if (totalScore >= 65) band = { key: 'CONDITIONAL_READY', label: "CONDITIONAL READY", color: "var(--clr-warning-50)", desc: "Moderate gaps. Resolve HIGH items before shipping." };
+    else if (totalScore >= 40) band = { key: 'SIGNIFICANT_REMEDIATION', label: "SIGNIFICANT REMEDIATION REQUIRED", color: "orange", desc: "Major labeling/ingredient/cGMP gaps. 3–6 month remediation timeline required." };
+    else band = { key: 'NOT_EXPORT_READY', label: "NOT EXPORT READY", color: "var(--clr-danger-50)", desc: "Critical violations present. Extremely high risk of customs detention or seizure." };
     return { score: totalScore, band, pillarScores };
   }
 
@@ -2045,7 +2088,7 @@ ${sorted.length ? sorted.map(v => `<div class="violation-card" style="border-lef
     const r = state.lastReport;
     const c = r.classification || {};
     const violations = r.violations || [];
-    const scoreReport = calculateFDAReadinessScore(violations);
+    const scoreReport = scoreReportFromMetaOrLocal(violations, r._meta);
     const sorted = [...violations].sort((a, b) =>
       ({ CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }[b.severity] - { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }[a.severity]));
     const bandColor = scoreReport.score >= 85 ? '#16a34a' : scoreReport.score >= 65 ? '#f59e0b' : scoreReport.score >= 40 ? '#f97316' : '#ef4444';
@@ -2089,11 +2132,16 @@ ${sorted.length ? sorted.map(v => `<div class="violation-card" style="border-lef
     const model = r._meta && r._meta.model ? `${providerLabel} — ${r._meta.model}` : providerLabel;
     const marketLabel = (r._meta && r._meta.marketLabel) || 'Export';
     const categoryLabel = (r._meta && r._meta.categoryLabel) || '';
+    const metaBits = [];
+    if (r._meta && r._meta.pipelineReady) metaBits.push('pipelineReady');
+    if (r._meta && r._meta.humanReviewRequired) metaBits.push('human review required');
+    if (r._meta && r._meta.truncation && r._meta.truncation.truncated) metaBits.push('dossier truncated');
+    const metaNote = metaBits.length ? ` &nbsp;|&nbsp; ${metaBits.join(' · ')}` : '';
 
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>APEX Compliance Report — ${esc(r.productName)}</title>
 <style>${REPORT_CSS}</style></head><body>
 <h1>APEX Compliance Report <span style="font-size:0.8rem;color:#0ea5e9;font-weight:400">[AI ANALYSIS]</span></h1>
-<p class="subtitle">Product: <strong>${esc(r.productName)}</strong> &nbsp;|&nbsp; Market: <strong>${esc(marketLabel)}</strong>${categoryLabel ? ` &nbsp;|&nbsp; Category: ${esc(categoryLabel)}` : ''} &nbsp;|&nbsp; Documents: ${esc(docNames)} &nbsp;|&nbsp; Engine: ${esc(model)} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}</p>
+<p class="subtitle">Product: <strong>${esc(r.productName)}</strong> &nbsp;|&nbsp; Market: <strong>${esc(marketLabel)}</strong>${categoryLabel ? ` &nbsp;|&nbsp; Category: ${esc(categoryLabel)}` : ''} &nbsp;|&nbsp; Documents: ${esc(docNames)} &nbsp;|&nbsp; Engine: ${esc(model)} &nbsp;|&nbsp; Score source: ${scoreReport.fromServer ? 'server _meta' : 'local demo'} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}${metaNote}</p>
 
 <div class="summary"><strong>Executive Summary</strong><br>${esc(r.productSummary)}</div>
 

@@ -52,12 +52,35 @@ for real compliance output.
 
 - **`server.js`** — Express server. Serves the static frontend and exposes `POST /api/analyze`,
   which sends the dossier to **NVIDIA Nemotron** (or Claude fallback) with a regulatory-expert
-  system prompt and a JSON schema, returning a structured report. `GET /api/health` reports
-  whether AI mode is enabled. Accepts JSON dossiers and raw `text/markdown`.
+  system prompt and a JSON schema, returning a structured report. **Readiness scoring is
+  server-side**: `_meta` includes `readinessScore`, `band`, `pipelineReady`, truncation flags,
+  and category resolution. `GET /api/health` reports whether AI mode is enabled. Accepts JSON
+  dossiers and raw `text/markdown`.
 - **Frontend** (`index.html`, `app.js`, `mock_data.js`, `index.css`) — vanilla JS. PDF text is
   extracted in-browser via PDF.js, bundled into a dossier, and sent to the backend. The returned
-  report is rendered across all views; the FDA Readiness Score is computed from the AI-derived
-  violations.
+  report is rendered across all views; the FDA Readiness Score for AI analyses is **read from
+  server `_meta`** (demo/offline docs may still use local math labeled as non-pipeline).
+
+### C → E category map
+
+Stage A/C/glue often send `dietary_supplement` (snake_case). E maps those aliases to
+`SUPPLEMENT` | `HERBAL` | `FOOD` | `AYUSH` (see `lib/category-map.js`). Unknown values set
+`_meta.categoryResolution.dropped=true` instead of silently omitting the regulatory lens.
+
+### `_meta` readiness contract (pipeline)
+
+| Field | Meaning |
+|-------|---------|
+| `readinessScore` | 0–100 weighted FRS |
+| `band` | `EXPORT_READY` \| `CONDITIONAL_READY` \| `SIGNIFICANT_REMEDIATION` \| `NOT_EXPORT_READY` |
+| `pipelineReady` | `true` when AI path produced a server-scored report |
+| `humanReviewRequired` / `exportAuthorized` | Human Review Gate (full gate = Task T20) |
+| `truncation` | Whether any document hit the 20 000-char limit |
+
+```bash
+npm test
+```
+
 
 ## Configuration
 
