@@ -20,6 +20,7 @@ import {
   buildReadinessMeta,
   DOC_CHAR_LIMIT,
 } from './lib/readiness.js';
+import { validateAnalyzeResponse } from './lib/contract_validate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -626,6 +627,10 @@ app.post('/api/analyze', async (req, res) => {
       categoryLabel,
       ...readiness,
     };
+    const gate = validateAnalyzeResponse(report);
+    if (!gate.ok) {
+      return res.status(gate.status).json(gate.body);
+    }
     res.json(report);
   } catch (err) {
     const status = err?.status || 500;
