@@ -23,8 +23,43 @@ import {
 import { validateAnalyzeResponse } from './lib/contract_validate.js';
 import { resolveAnalyzeIntake } from './lib/dossier_intake.js';
 import { corsMiddleware, parseCorsAllowlist } from './lib/cors.js';
+import {
+  HumanReviewStore,
+  computeComplianceHash,
+  createReportId,
+  humanReviewGatePolicy,
+  validateReviewSubmission,
+  JURISDICTION_DISCLAIMER,
+} from './lib/human-review.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const reviewStore = new HumanReviewStore(
+  path.join(__dirname, 'data', 'human-reviews.json'),
+);
+
+/**
+ * Recompute readiness `_meta` for a stored report + optional review record.
+ * @param {object} report
+ * @param {object|null} humanReview
+ */
+function applyReadinessToReport(report, humanReview = null) {
+  const meta = report._meta || {};
+  const readiness = buildReadinessMeta({
+    violations: report.violations,
+    truncation: meta.truncation,
+    categoryResolution: meta.categoryResolution,
+    marketResolution: meta.marketResolution,
+    humanReview,
+    policy: humanReviewGatePolicy(process.env),
+  });
+  report._meta = {
+    ...meta,
+    ...readiness,
+    reportId: meta.reportId || null,
+    complianceHash: meta.complianceHash || computeComplianceHash(report),
+  };
+  return report;
+}
 
 // ---------------------------------------------------------------------------
 // Minimal .env loader (no dependency). Reads KEY=VALUE lines from ./.env and
@@ -56,6 +91,7 @@ function loadDotEnv() {
 loadDotEnv();
 // Default 8002 so Stage E does not clash with Stage A on :8000.
 const PORT = process.env.PORT || 8002;
+const HUMAN_REVIEW_POLICY = humanReviewGatePolicy(process.env);
 
 let CORS_ALLOWLIST;
 try {
@@ -587,8 +623,6 @@ app.post('/api/analyze', async (req, res) => {
     Array.isArray(documents) ? documents : [],
     DOC_CHAR_LIMIT,
   );
-  const humanReviewApproved = body.humanReviewApproved === true;
-
   const system = buildSystemPrompt(market, category);
   const userPrompt = buildUserPrompt({
     productName,
@@ -617,12 +651,14 @@ app.post('/api/analyze', async (req, res) => {
       return res.status(502).json({ error: 'parse_error', message: 'Could not parse the analysis output.' });
     }
 
+    const reportId = createReportId();
     const readiness = buildReadinessMeta({
       violations: report.violations,
       truncation,
       categoryResolution,
       marketResolution,
-      humanReviewApproved,
+      humanReview: null,
+      policy: HUMAN_REVIEW_POLICY,
     });
 
     report._meta = {
@@ -635,12 +671,15 @@ app.post('/api/analyze', async (req, res) => {
       category,
       categoryLabel,
       dossierIntake: intake.intake,
+      reportId,
       ...readiness,
     };
+    report._meta.complianceHash = computeComplianceHash(report);
     const gate = validateAnalyzeResponse(report);
     if (!gate.ok) {
       return res.status(gate.status).json(gate.body);
     }
+    reviewStore.saveReportSnapshot(reportId, report);
     res.json(report);
   } catch (err) {
     const status = err?.status || 500;
@@ -664,7 +703,66 @@ app.get('/api/health', (_req, res) => {
     markets: MARKETS,
     readinessContract: true,
     docCharLimit: DOC_CHAR_LIMIT,
-    humanReviewGate: 'pending_t20',
+    humanReviewGate: HUMAN_REVIEW_POLICY,
+    humanReviewDisclaimer: JURISDICTION_DISCLAIMER,
+  });
+});
+
+/**
+ * Human Review Gate — named sign-off before export release (Task T20).
+ * Body: { reportId, reviewerId, reviewerName, jurisdictionDisclaimerAck: true,
+ *         decision?: "approve"|"reject", notes?: string }
+ */
+app.post('/api/human-review', (req, res) => {
+  const validated = validateReviewSubmission(req.body || {});
+  if (!validated.ok) {
+    return res.status(validated.status).json(validated.body);
+  }
+  const stored = reviewStore.submitReview(validated.record);
+  if (!stored.ok) {
+    return res.status(stored.status).json(stored.body);
+  }
+  const report = applyReadinessToReport(
+    structuredClone(stored.report),
+    stored.review.decision === 'approve' ? stored.review : null,
+  );
+  // Persist refreshed meta so subsequent GETs see the same gate truth.
+  reviewStore.saveReportSnapshot(validated.record.reportId, report);
+  return res.json({
+    ok: true,
+    reportId: validated.record.reportId,
+    humanReview: report._meta.humanReview,
+    released: report._meta.released,
+    exportAuthorized: report._meta.exportAuthorized,
+    band: report._meta.band,
+    readinessScore: report._meta.readinessScore,
+    humanReviewRequired: report._meta.humanReviewRequired,
+    _meta: report._meta,
+    report,
+  });
+});
+
+/** Fetch stored report + review state (same `_meta` contract as analyze). */
+app.get('/api/human-review/:reportId', (req, res) => {
+  const reportId = String(req.params.reportId || '').trim();
+  const snap = reviewStore.getSnapshot(reportId);
+  if (!snap) {
+    return res.status(404).json({
+      error: 'report_not_found',
+      message: `No stored analyze report for reportId=${reportId}`,
+    });
+  }
+  const existing = reviewStore.getReview(reportId);
+  const humanReview =
+    existing && existing.decision === 'approve' ? existing : null;
+  const report = applyReadinessToReport(structuredClone(snap.report), humanReview);
+  return res.json({
+    reportId,
+    humanReview: report._meta.humanReview,
+    released: report._meta.released,
+    exportAuthorized: report._meta.exportAuthorized,
+    _meta: report._meta,
+    report,
   });
 });
 

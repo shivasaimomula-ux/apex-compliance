@@ -52,6 +52,14 @@ document.addEventListener('DOMContentLoaded', () => {
     dashboardViolationsCount: document.getElementById('dashboard-violations-count'),
     dashboardRemediationList: document.getElementById('dashboard-remediation-list'),
     dashboardProductName: document.getElementById('dashboard-product-name'),
+    dashboardReleaseStatus: document.getElementById('dashboard-release-status'),
+    humanReviewForm: document.getElementById('human-review-form'),
+    humanReviewStatus: document.getElementById('human-review-status'),
+    humanReviewId: document.getElementById('human-review-id'),
+    humanReviewName: document.getElementById('human-review-name'),
+    humanReviewDisclaimer: document.getElementById('human-review-disclaimer'),
+    humanReviewDisclaimerText: document.getElementById('human-review-disclaimer-text'),
+    humanReviewSubmit: document.getElementById('human-review-submit'),
 
     // Document Parsing
     docSelectors: document.querySelectorAll('.doc-select-btn'),
@@ -173,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupMarketTabs();
     renderMarketsView('US');
     initDisclaimer();
+    setupHumanReviewGate();
 
     // Set upload mode to live by default
     setUploadMode('live');
@@ -478,6 +487,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       state.aiEnabled = !!data.aiEnabled;
       populateProviders(data);
+      if (data.humanReviewDisclaimer && DOM.humanReviewDisclaimerText) {
+        DOM.humanReviewDisclaimerText.textContent = data.humanReviewDisclaimer;
+      }
       setAiStatus(
         state.aiEnabled ? 'online' : 'offline',
         state.aiEnabled
@@ -488,6 +500,106 @@ document.addEventListener('DOMContentLoaded', () => {
       state.aiEnabled = false;
       setAiStatus('offline', 'Backend not running — pipeline analysis unavailable. Run "npm start" with an NVIDIA or Anthropic key.');
     }
+  }
+
+  function updateHumanReviewPanel(meta) {
+    const m = meta || {};
+    const reportId = m.reportId || (state.lastReport && state.lastReport._meta && state.lastReport._meta.reportId);
+    if (DOM.dashboardReleaseStatus) {
+      if (m.released === true || m.exportAuthorized === true) {
+        DOM.dashboardReleaseStatus.textContent = 'released (human review on file)';
+        DOM.dashboardReleaseStatus.style.color = 'var(--clr-success-50)';
+      } else if (m.humanReviewRequired) {
+        DOM.dashboardReleaseStatus.textContent = 'blocked — human review required';
+        DOM.dashboardReleaseStatus.style.color = 'var(--clr-warning-50)';
+      } else {
+        DOM.dashboardReleaseStatus.textContent = 'not released';
+        DOM.dashboardReleaseStatus.style.color = '';
+      }
+    }
+    if (!DOM.humanReviewStatus) return;
+    if (!reportId) {
+      DOM.humanReviewStatus.textContent =
+        'Analyze a dossier first. EXPORT READY scores require a named sign-off before released.';
+      if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+      return;
+    }
+    if (m.humanReview && m.humanReview.reviewerName) {
+      DOM.humanReviewStatus.textContent =
+        `Signed off by ${m.humanReview.reviewerName} (${m.humanReview.reviewerId}) at ${m.humanReview.reviewedAt}` +
+        (m.released ? ' · released=true' : ' · released=false');
+      if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+      return;
+    }
+    DOM.humanReviewStatus.textContent =
+      `Report ${reportId} · band=${m.band || '?'} · gate=${m.humanReviewGate || 'enforce'}` +
+      (m.humanReviewRequired
+        ? ' · submit named sign-off to authorize export language.'
+        : ' · sign-off optional for this band (export still not released unless EXPORT_READY).');
+    if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = false;
+  }
+
+  function setupHumanReviewGate() {
+    if (!DOM.humanReviewForm) return;
+    if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+    DOM.humanReviewForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const reportId =
+        state.lastReport && state.lastReport._meta && state.lastReport._meta.reportId;
+      if (!reportId) {
+        alert('Run AI analyze first so the server has a reportId to sign.');
+        return;
+      }
+      const reviewerId = (DOM.humanReviewId && DOM.humanReviewId.value.trim()) || '';
+      const reviewerName = (DOM.humanReviewName && DOM.humanReviewName.value.trim()) || '';
+      const ack = !!(DOM.humanReviewDisclaimer && DOM.humanReviewDisclaimer.checked);
+      if (!reviewerId || !reviewerName || !ack) {
+        alert('Reviewer id, name, and jurisdiction disclaimer acknowledgement are required.');
+        return;
+      }
+      if (DOM.humanReviewSubmit) {
+        DOM.humanReviewSubmit.disabled = true;
+        DOM.humanReviewSubmit.textContent = 'Submitting…';
+      }
+      try {
+        const res = await fetch('/api/human-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reportId,
+            reviewerId,
+            reviewerName,
+            jurisdictionDisclaimerAck: true,
+            decision: 'approve',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Sign-off failed');
+        if (data.report) {
+          state.lastReport = data.report;
+        } else if (state.lastReport && data._meta) {
+          state.lastReport._meta = data._meta;
+        }
+        const violations = (state.lastReport && state.lastReport.violations) || [];
+        const scoreReport = scoreReportFromMetaOrLocal(
+          violations,
+          state.lastReport && state.lastReport._meta,
+        );
+        updateDashboardScores(scoreReport, violations);
+        updateHumanReviewPanel(state.lastReport && state.lastReport._meta);
+        setAiStatus(
+          'online',
+          data.released
+            ? `Human review approved — released=true (${reviewerName})`
+            : `Human review recorded — released=false (band=${data.band})`,
+        );
+      } catch (err) {
+        alert(`Human review failed: ${err.message}`);
+        if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = false;
+      } finally {
+        if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.textContent = 'Submit sign-off';
+      }
+    });
   }
 
   // Build the AI-engine dropdown from the providers/models the backend reports.
@@ -641,8 +753,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (scoreReport.fromServer && scoreReport.humanReviewRequired && scoreReport.band.key === 'EXPORT_READY') {
       DOM.dashboardScoreDesc.textContent =
-        `${scoreReport.band.desc} Human review required before export authorization (T20).`;
+        `${scoreReport.band.desc} Human review required before export authorization.`;
     }
+    updateHumanReviewPanel(report._meta);
 
     // --- Document Audit panel ---
     const primary = (docs && docs[0]) || { name: report.productName, text: '' };
@@ -1370,7 +1483,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fromServer: true,
         pipelineReady: meta.pipelineReady === true,
         exportAuthorized: meta.exportAuthorized === true,
-        humanReviewRequired: meta.humanReviewRequired !== false,
+        released: meta.released === true || meta.exportAuthorized === true,
+        humanReviewRequired: meta.humanReviewRequired === true,
+        humanReview: meta.humanReview || null,
         truncated: !!(meta.truncation && meta.truncation.truncated),
       };
     }

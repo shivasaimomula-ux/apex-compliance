@@ -90,6 +90,8 @@ describe('buildReadinessMeta', () => {
     assert.equal(meta.bandLabel, 'EXPORT READY');
     assert.equal(meta.humanReviewRequired, true);
     assert.equal(meta.exportAuthorized, false);
+    assert.equal(meta.released, false);
+    assert.equal(meta.humanReview, null);
     assert.equal(meta.categoryResolution.mappedFrom, 'dietary_supplement');
     assert.ok(meta.pillarScores);
   });
@@ -97,11 +99,19 @@ describe('buildReadinessMeta', () => {
   it('allows exportAuthorized only with human review + EXPORT_READY + no truncation', () => {
     const meta = buildReadinessMeta({
       violations: [],
-      humanReviewApproved: true,
+      humanReview: {
+        reviewerId: 'rev-001',
+        reviewerName: 'Ada',
+        reviewedAt: '2026-09-21T00:00:00.000Z',
+        decision: 'approve',
+        jurisdictionDisclaimerAck: true,
+      },
       truncation: { truncated: false, truncationLimit: DOC_CHAR_LIMIT, truncatedDocuments: [], note: null },
     });
     assert.equal(meta.exportAuthorized, true);
+    assert.equal(meta.released, true);
     assert.equal(meta.humanReviewRequired, false);
+    assert.equal(meta.humanReview.reviewerId, 'rev-001');
   });
 });
 

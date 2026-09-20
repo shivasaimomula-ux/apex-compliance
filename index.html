@@ -195,6 +195,9 @@
                 <p style="font-size:var(--fs-sm)">Currently Auditing:</p>
                 <strong id="dashboard-product-name" style="font-size: var(--fs-sm); color: var(--accent); display:block; margin-bottom: 0.75rem;">Ashwagandha Root Extract 500mg</strong>
                 <p style="font-size:var(--fs-sm)">Total Audited Gaps: <strong id="dashboard-violations-count" style="color: var(--clr-danger-50); font-size:1.1rem">3</strong></p>
+                <p style="font-size:var(--fs-xs); margin-top:0.5rem; color: var(--text-muted, #64748b);">
+                  Release: <strong id="dashboard-release-status">not released</strong>
+                </p>
               </div>
               <div style="display:flex; flex-direction:column; gap: 0.5rem;">
                 <button class="btn btn-primary" onclick="switchView('parsing')">📂 Audit New Document</button>
@@ -202,6 +205,37 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- Human Review Gate (Task T20) — independent E UI; consumes server _meta -->
+          <div class="glass-card" id="human-review-gate-card" style="margin-top: 1rem;">
+            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 0.5rem;">Human Review Gate</h2>
+            <p id="human-review-status" style="font-size: var(--fs-sm); margin-bottom: 1rem; color: var(--text-muted, #64748b);">
+              Analyze a dossier first. EXPORT READY scores require a named sign-off before <code>released</code>.
+            </p>
+            <form id="human-review-form" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 42rem;">
+              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
+                Reviewer ID
+                <input id="human-review-id" type="text" autocomplete="username" required
+                  placeholder="e.g. emp-1042"
+                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
+              </label>
+              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
+                Reviewer name
+                <input id="human-review-name" type="text" autocomplete="name" required
+                  placeholder="Full name"
+                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
+              </label>
+              <label style="font-size: var(--fs-xs); display:flex; gap:0.5rem; align-items:flex-start;">
+                <input id="human-review-disclaimer" type="checkbox" required style="margin-top:0.2rem;" />
+                <span id="human-review-disclaimer-text">
+                  I acknowledge that export-readiness language is jurisdiction-specific and that this score is not a legal determination.
+                </span>
+              </label>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button type="submit" class="btn btn-primary" id="human-review-submit">Submit sign-off</button>
+              </div>
+            </form>
           </div>
 
           <!-- Priority Actions Remediation Checklist -->

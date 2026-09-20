@@ -20,3 +20,6 @@ venv/
 .claude/
 *.log
 untitled folder/
+
+# Human Review Gate store (local sign-offs)
+data/

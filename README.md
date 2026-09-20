@@ -98,8 +98,14 @@ Unknown values set `_meta.categoryResolution.dropped=true` (or
 | `readinessScore` | 0–100 weighted FRS |
 | `band` | `EXPORT_READY` \| `CONDITIONAL_READY` \| `SIGNIFICANT_REMEDIATION` \| `NOT_EXPORT_READY` |
 | `pipelineReady` | `true` when AI path produced a server-scored report |
-| `humanReviewRequired` / `exportAuthorized` | Human Review Gate (full gate = Task T20) |
+| `humanReviewRequired` / `exportAuthorized` / `released` | Human Review Gate (T20) |
+| `humanReview` | Named sign-off record or `null` |
 | `truncation` | Whether any document hit the 20 000-char limit |
+
+Human Review Gate: `POST /api/human-review` with `{ reportId, reviewerId, reviewerName,
+jurisdictionDisclaimerAck: true }`. Policy via `HUMAN_REVIEW_GATE=enforce|warn|off`
+(default **enforce**). Score band may still read `EXPORT_READY`; `released` stays
+false until a server-side sign-off exists.
 
 ```bash
 npm test
@@ -116,5 +122,6 @@ npm test
 | `PORT`              | `8002`                                       | Server port                      |
 | `APEX_MODEL`        | `claude-opus-4-8`                            | Anthropic model                  |
 | `NVIDIA_MODEL`      | `nvidia/llama-3.3-nemotron-super-49b-v1`     | NVIDIA model                     |
+| `HUMAN_REVIEW_GATE` | `enforce`                                    | Require named sign-off for `released` when band is EXPORT_READY |
 
 > Informational research tool only — not a substitute for licensed regulatory or legal counsel.
