@@ -370,11 +370,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const docName = DOM.pasteDocName.value.trim() || 'Pasted_Document.txt';
-      if (state.aiEnabled) {
-        analyzeDossier([{ name: docName, text }]);
-      } else {
-        runLiveAnalysis(text, docName, text.length);
-      }
+      // Regex offline path is demo-only and must not count as pipeline success.
+      analyzeDossier([{ name: docName, text }]);
     });
   }
 
@@ -392,7 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ext === 'pdf') {
         setDropzoneProcessing(true, 'Extracting text from PDF pages...');
         rawText = await extractTextFromPDF(file);
-      } else if (['txt', 'csv', 'tsv'].includes(ext)) {
+      } else if (['txt', 'csv', 'tsv', 'md', 'markdown'].includes(ext)) {
         setDropzoneProcessing(true, 'Reading text file...');
         rawText = await readTextFile(file);
       } else {
@@ -400,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setDropzoneState('error',
           '⚠️',
           `Unsupported File Format (.${ext})`,
-          `PDF and TXT files are supported for live analysis. For JPG/TIFF scans, use the "Paste Document Text" option below to paste the content manually.`
+          `PDF, TXT, CSV, and Markdown files are supported. For JPG/TIFF scans, use the "Paste Document Text" option below.`
         );
         return;
       }
@@ -412,10 +409,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      setDropzoneProcessing(true, 'Running FDA compliance analysis...');
-      await sleep(600); // brief pause for UX
-
-      runLiveAnalysis(rawText, file.name, file.size);
+      setDropzoneProcessing(true, 'Queuing for AI compliance analysis...');
+      await sleep(200);
+      // Prefer AI path; do not treat regex as success.
+      if (state.aiEnabled) {
+        await analyzeDossier([{ name: file.name, text: rawText }]);
+      } else {
+        setDropzoneProcessing(false);
+        setDropzoneState('error', '⚠️', 'AI key required',
+          'Offline regex analysis is not pipeline success. Set NVIDIA_API_KEY or ANTHROPIC_API_KEY and restart.');
+      }
 
     } catch (err) {
       console.error('File processing error:', err);
@@ -478,12 +481,12 @@ document.addEventListener('DOMContentLoaded', () => {
       setAiStatus(
         state.aiEnabled ? 'online' : 'offline',
         state.aiEnabled
-          ? `AI analysis online — powered by ${data.model || 'Claude'}`
-          : 'AI engine reachable, but no API key is set. Using offline rule-based analysis.'
+          ? `AI analysis online — powered by ${data.model || data.provider || 'LLM'}`
+          : 'AI engine reachable, but no API key is set. Pipeline analysis unavailable (regex is not success).'
       );
     } catch {
       state.aiEnabled = false;
-      setAiStatus('offline', 'Backend not running — using offline rule-based analysis. Run "npm start" with an API key for AI mode.');
+      setAiStatus('offline', 'Backend not running — pipeline analysis unavailable. Run "npm start" with an NVIDIA or Anthropic key.');
     }
   }
 
@@ -515,9 +518,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function stageFiles(files) {
-    const accepted = files.filter(f => /\.(pdf|txt|csv|tsv)$/i.test(f.name));
+    const accepted = files.filter(f => /\.(pdf|txt|csv|tsv|md|markdown)$/i.test(f.name));
     if (accepted.length === 0) {
-      setDropzoneState('error', '⚠️', 'Unsupported File Type', 'Please add PDF or TXT files. For images/scans, use the paste-text option below.');
+      setDropzoneState('error', '⚠️', 'Unsupported File Type', 'Please add PDF, TXT, CSV, or Markdown (.md) files. For images/scans, use the paste-text option below.');
       return;
     }
     for (const file of accepted) {
@@ -573,9 +576,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.analyzing) return;
 
     if (!state.aiEnabled) {
-      // Offline fallback: run the rule-based engine on the combined text.
-      const combined = docs.map(d => `--- ${d.name} ---\n${d.text}`).join('\n\n');
-      runLiveAnalysis(combined, docs[0].name, combined.length);
+      // No regex-as-success: offline rule engine is not pipeline output.
+      alert('AI analysis is required for a valid compliance report. Set NVIDIA_API_KEY or ANTHROPIC_API_KEY and restart the server. Offline regex analysis is demo-only and does not count as success.');
+      setAiStatus('offline', 'Pipeline blocked — no API key. Regex is not treated as success.');
       return;
     }
 

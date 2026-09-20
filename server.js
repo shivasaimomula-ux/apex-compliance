@@ -45,12 +45,13 @@ function loadDotEnv() {
   }
 }
 loadDotEnv();
-const PORT = process.env.PORT || 8000;
+// Default 8002 so Stage E does not clash with Stage A on :8000.
+const PORT = process.env.PORT || 8002;
 
 // ---------------------------------------------------------------------------
 // LLM providers. APEX can run on Anthropic (Claude) OR NVIDIA (Nemotron, via
 // its OpenAI-compatible endpoint). Provider is chosen by APEX_PROVIDER, else
-// auto-detected from whichever key is present (Anthropic preferred).
+// auto-detected from whichever key is present (NVIDIA preferred, Claude fallback).
 // ---------------------------------------------------------------------------
 const MODEL = process.env.APEX_MODEL || 'claude-opus-4-8';              // Anthropic model
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'nvidia/llama-3.3-nemotron-super-49b-v1';
@@ -67,13 +68,13 @@ function nvidiaKeyOk() {
 }
 
 // Resolve the active provider: explicit APEX_PROVIDER wins (if its key is set),
-// otherwise prefer Anthropic, then NVIDIA. Returns null when no usable key.
+// otherwise prefer NVIDIA, then Anthropic (Claude). Returns null when no usable key.
 function resolveProvider() {
   const p = (process.env.APEX_PROVIDER || '').toLowerCase();
   if (p === 'nvidia' && nvidiaKeyOk()) return 'nvidia';
   if (p === 'anthropic' && anthropicKeyOk()) return 'anthropic';
-  if (anthropicKeyOk()) return 'anthropic';
   if (nvidiaKeyOk()) return 'nvidia';
+  if (anthropicKeyOk()) return 'anthropic';
   return null;
 }
 
@@ -106,7 +107,31 @@ function parseReportJson(text) {
 }
 
 const app = express();
+
+// CORS for cross-origin Stage C / pipeline callers (localhost ports differ).
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With',
+  );
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+// Accept JSON dossiers and raw markdown/plain text (C → E handoff).
 app.use(express.json({ limit: '10mb' }));
+app.use(express.text({
+  type: ['text/markdown', 'text/x-markdown', 'text/plain'],
+  limit: '10mb',
+}));
 
 // ---------------------------------------------------------------------------
 // Compliance analysis schema — Claude is constrained to return exactly this.
@@ -494,37 +519,50 @@ async function callNvidia({ system, userPrompt }) {
 
 app.post('/api/analyze', async (req, res) => {
   if (!hasUsableKey()) {
+    // Hard fail — regex/offline analysis is UI demo only and is never success here.
     return res.status(503).json({
       error: 'no_api_key',
       message:
-        'No valid API key is set. Add an Anthropic (sk-ant-...) or NVIDIA (nvapi-...) key to the .env file and restart.',
+        'No valid API key is set. Add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file and restart. Regex fallback is not pipeline success.',
     });
   }
   // Per-request provider override from the UI dropdown, if that provider has a
-  // usable key; otherwise fall back to the env-configured default.
-  const requestedProvider = (req.body && typeof req.body.provider === 'string')
-    ? req.body.provider.toLowerCase()
+  // usable key; otherwise fall back to the env-configured default (NVIDIA-first).
+  const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body))
+    ? req.body
+    : {};
+  const requestedProvider = (typeof body.provider === 'string')
+    ? body.provider.toLowerCase()
     : null;
   const provider = (requestedProvider && providerUsable(requestedProvider))
     ? requestedProvider
     : resolveProvider();
 
-  const { productName, documents, formText } = req.body || {};
+  // Normalize intake: JSON {documents, formText, markdown} OR raw text/markdown body.
+  let { productName, documents, formText } = body;
+  const markdownField = typeof body.markdown === 'string' ? body.markdown : null;
+  if (typeof req.body === 'string' && req.body.trim()) {
+    documents = [{ name: 'dossier.md', text: req.body }];
+  } else if (markdownField && markdownField.trim()) {
+    const mdDoc = { name: 'dossier.md', text: markdownField };
+    documents = Array.isArray(documents) ? [...documents, mdDoc] : [mdDoc];
+  }
+
   // Target market (default US for backward compatibility).
-  const market = (req.body && typeof req.body.market === 'string' && MARKETS[req.body.market])
-    ? req.body.market
+  const market = (typeof body.market === 'string' && MARKETS[body.market])
+    ? body.market
     : 'US';
   const marketLabel = MARKETS[market];
   // Product category (optional; sets the expected regulatory lens).
-  const category = (req.body && typeof req.body.category === 'string' && CATEGORIES[req.body.category])
-    ? req.body.category
+  const category = (typeof body.category === 'string' && CATEGORIES[body.category])
+    ? body.category
     : null;
   const categoryLabel = category ? CATEGORIES[category] : null;
   const hasDocs = Array.isArray(documents) && documents.some((d) => d && d.text && d.text.trim());
   if (!hasDocs && !(formText && formText.trim())) {
     return res.status(400).json({
       error: 'empty_dossier',
-      message: 'Provide at least one document or some intake text to analyze.',
+      message: 'Provide at least one document, markdown body, or intake text to analyze.',
     });
   }
 
@@ -611,6 +649,6 @@ app.listen(PORT, () => {
   const provider = resolveProvider();
   const aiState = provider
     ? `AI analysis ENABLED — provider: ${provider} (${activeModel()})`
-    : 'AI analysis DISABLED — add an Anthropic (sk-ant-...) or NVIDIA (nvapi-...) key to the .env file';
+    : 'AI analysis DISABLED — add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file';
   console.log(`APEX Compliance Platform running at http://localhost:${PORT}  •  ${aiState}`);
 });
