@@ -35,8 +35,17 @@ Default **`PORT=8002`** so Stage E does not clash with Stage A on `:8000`. Overr
 
 ### Pipeline handoff (Stage C → E)
 
+Prefer a versioned structured `Dossier` (herbenzo-contracts `schema_version: "1.0.0"`).
+Markdown remains a human companion; when no dossier is present, E falls back to
+markdown/documents and records `_meta.dossierIntake.mode = "markdown_fallback"`.
+
 ```bash
-# JSON with markdown field or documents[].text
+# Preferred: structured Dossier from Stage C
+curl -s -X POST http://localhost:8002/api/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"productName":"Demo","market":"US","category":"SUPPLEMENT","dossier":{"schema_version":"1.0.0","dossier_id":"D-demo","product_name":"Demo","product_category":"dietary_supplement","target_market":"US","ingredients":[{"name":"Ashwagandha"}],"confidence":0.7,"inherited_confidence":0.8,"engine_version":"C-dossier/1.1.0"}}'
+
+# Fallback: JSON with markdown field or documents[].text
 curl -s -X POST http://localhost:8002/api/analyze \
   -H 'Content-Type: application/json' \
   -d '{"productName":"Demo","market":"US","category":"SUPPLEMENT","markdown":"# Dossier\n…"}'
@@ -61,8 +70,7 @@ for real compliance output.
   which sends the dossier to **NVIDIA Nemotron** (or Claude fallback) with a regulatory-expert
   system prompt and a JSON schema, returning a structured report. **Readiness scoring is
   server-side**: `_meta` includes `readinessScore`, `band`, `pipelineReady`, truncation flags,
-  and category resolution. `GET /api/health` reports whether AI mode is enabled. Accepts JSON
-  dossiers and raw `text/markdown`.
+  category resolution, and `dossierIntake` (structured vs markdown). `GET /api/health` reports whether AI mode is enabled. Accepts structured Dossier JSON, document arrays, and raw `text/markdown`.
 - **Frontend** (`index.html`, `app.js`, `mock_data.js`, `index.css`) — vanilla JS. PDF text is
   extracted in-browser via PDF.js, bundled into a dossier, and sent to the backend. The returned
   report is rendered across all views; the FDA Readiness Score for AI analyses is **read from

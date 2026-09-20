@@ -21,6 +21,7 @@ import {
   DOC_CHAR_LIMIT,
 } from './lib/readiness.js';
 import { validateAnalyzeResponse } from './lib/contract_validate.js';
+import { resolveAnalyzeIntake } from './lib/dossier_intake.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -534,8 +535,7 @@ app.post('/api/analyze', async (req, res) => {
         'No valid API key is set. Add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file and restart. Regex fallback is not pipeline success.',
     });
   }
-  // Per-request provider override from the UI dropdown, if that provider has a
-  // usable key; otherwise fall back to the env-configured default (NVIDIA-first).
+  // Normalize intake: prefer structured Dossier (Task T7), else markdown/docs.
   const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body))
     ? req.body
     : {};
@@ -546,25 +546,33 @@ app.post('/api/analyze', async (req, res) => {
     ? requestedProvider
     : resolveProvider();
 
-  // Normalize intake: JSON {documents, formText, markdown} OR raw text/markdown body.
-  let { productName, documents, formText } = body;
-  const markdownField = typeof body.markdown === 'string' ? body.markdown : null;
-  if (typeof req.body === 'string' && req.body.trim()) {
-    documents = [{ name: 'dossier.md', text: req.body }];
-  } else if (markdownField && markdownField.trim()) {
-    const mdDoc = { name: 'dossier.md', text: markdownField };
-    documents = Array.isArray(documents) ? [...documents, mdDoc] : [mdDoc];
+  const intake = resolveAnalyzeIntake(body, req.body);
+  if (!intake.ok) {
+    return res.status(intake.status).json(intake.body);
+  }
+
+  let { productName, documents, formText } = intake;
+  if (!productName && typeof body.productName === 'string') {
+    productName = body.productName;
   }
 
   // Target market (default US for backward compatibility).
-  const market = (typeof body.market === 'string' && MARKETS[body.market])
-    ? body.market
+  // Structured dossier may hint market; explicit body.market still wins.
+  const marketCandidate =
+    (typeof body.market === 'string' && body.market) ||
+    intake.marketHint ||
+    'US';
+  const market = (typeof marketCandidate === 'string' && MARKETS[marketCandidate])
+    ? marketCandidate
     : 'US';
   const marketLabel = MARKETS[market];
   // Product category: map A/C/glue vocabulary (e.g. dietary_supplement) → E keys.
-  const categoryResolution = resolveProductCategory(
-    typeof body.category === 'string' ? body.category : null,
-  );
+  // Reuse T3 category map; full enum alignment is Task T8.
+  const categoryRaw =
+    (typeof body.category === 'string' && body.category) ||
+    intake.categoryHint ||
+    null;
+  const categoryResolution = resolveProductCategory(categoryRaw);
   const category = categoryResolution.category;
   const categoryLabel = categoryResolution.categoryLabel;
   const hasDocs = Array.isArray(documents) && documents.some((d) => d && d.text && d.text.trim());
@@ -625,6 +633,7 @@ app.post('/api/analyze', async (req, res) => {
       marketLabel,
       category,
       categoryLabel,
+      dossierIntake: intake.intake,
       ...readiness,
     };
     const gate = validateAnalyzeResponse(report);
