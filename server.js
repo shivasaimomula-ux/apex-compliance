@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
-import { resolveProductCategory } from './lib/category-map.js';
+import { resolveProductCategory, resolveTargetMarket } from './lib/category-map.js';
 import {
   applyDocumentCharLimit,
   buildReadinessMeta,
@@ -445,12 +445,13 @@ function buildSystemPrompt(marketKey, categoryKey) {
   const cat = CATEGORY_BRIEFS[categoryKey];
   const catBlock = cat
     ? `\n\n=== STATED PRODUCT CATEGORY: ${cat.label} ===\n${cat.brief}\n\nUse the stated category as the expected regulatory lens, but CLASSIFY HONESTLY from the actual claims and composition in the dossier — if the evidence contradicts the stated category (e.g. a "food supplement" that carries disease claims), say so explicitly and classify on the facts.`
-    : '';
-  // Every market composes the SAME rigorous base + an equally-detailed brief,
-  // so non-US markets get the same depth of analysis as the US/FDA one.
-  const m = MARKET_BRIEFS[marketKey] || MARKET_BRIEFS.US;
-  const base = `${BASE_SYSTEM}\n\n=== TARGET MARKET: ${m.label} ===\n${m.brief}`;
-  return base + catBlock;
+    : '\n\n=== STATED PRODUCT CATEGORY: UNRESOLVED ===\nNo regulatory-category lens was recognized. Do not assume dietary-supplement framing; flag the missing category as a gap.';
+  // Task T8: never silently fall back to US when market is unresolved.
+  const m = marketKey && MARKET_BRIEFS[marketKey] ? MARKET_BRIEFS[marketKey] : null;
+  const marketBlock = m
+    ? `\n\n=== TARGET MARKET: ${m.label} ===\n${m.brief}`
+    : `\n\n=== TARGET MARKET: UNRESOLVED ===\nNo dedicated jurisdiction brief applied. Do NOT assume US/FDA. Flag the missing or unsupported market as a gap.`;
+  return `${BASE_SYSTEM}${marketBlock}${catBlock}`;
 }
 
 function buildUserPrompt({ productName, documents, formText, marketLabel, categoryLabel }) {
@@ -556,20 +557,25 @@ app.post('/api/analyze', async (req, res) => {
     productName = body.productName;
   }
 
-  // Target market (default US for backward compatibility).
-  // Structured dossier may hint market; explicit body.market still wins.
+  // Target market via shared enum adapter (Task T8). Empty → US; unknown non-empty
+  // does not silently become US (except documented AU→NZ FSANZ fallback).
   const marketCandidate =
     (typeof body.market === 'string' && body.market) ||
     intake.marketHint ||
-    'US';
-  const market = (typeof marketCandidate === 'string' && MARKETS[marketCandidate])
-    ? marketCandidate
-    : 'US';
-  const marketLabel = MARKETS[market];
-  // Product category: map A/C/glue vocabulary (e.g. dietary_supplement) → E keys.
-  // Reuse T3 category map; full enum alignment is Task T8.
+    null;
+  const marketResolution = resolveTargetMarket(marketCandidate);
+  // null when dropped — do not invent US for a non-empty unsupported market.
+  const market = marketResolution.market;
+  const marketLabel =
+    marketResolution.marketLabel ||
+    (marketResolution.dropped
+      ? `UNRESOLVED (${marketResolution.input || 'unknown'})`
+      : MARKETS.US);
+  // Product category: prefer body.category, then dossier.regulatory_category /
+  // product_category aliases. Unknown → dropped (no silent SUPPLEMENT).
   const categoryRaw =
     (typeof body.category === 'string' && body.category) ||
+    (typeof body.regulatoryCategory === 'string' && body.regulatoryCategory) ||
     intake.categoryHint ||
     null;
   const categoryResolution = resolveProductCategory(categoryRaw);
@@ -621,6 +627,7 @@ app.post('/api/analyze', async (req, res) => {
       violations: report.violations,
       truncation,
       categoryResolution,
+      marketResolution,
       humanReviewApproved,
     });
 

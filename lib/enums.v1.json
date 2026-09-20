@@ -1,0 +1,103 @@
+{
+  "$id": "https://herbenzo.com/contracts/enums.v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Shared RegulatoryCategory + TargetMarket vocabulary. Unknown values: warn via resolution.dropped (default) or fail closed when strict=true / ENUM_STRICT=1.",
+  "regulatory_category": {
+    "aliases": {
+      "ayurvedic": "AYUSH",
+      "ayurvedic_medicine": "AYUSH",
+      "ayush": "AYUSH",
+      "ayush_medicine": "AYUSH",
+      "botanical": "HERBAL",
+      "botanical_product": "HERBAL",
+      "conventional_food": "FOOD",
+      "dietary": "SUPPLEMENT",
+      "dietary_supplement": "SUPPLEMENT",
+      "food": "FOOD",
+      "food_supplement": "SUPPLEMENT",
+      "foodstuff": "FOOD",
+      "functional_food": "FOOD",
+      "health_supplement": "SUPPLEMENT",
+      "herbal": "HERBAL",
+      "herbal_blend": "HERBAL",
+      "herbal_product": "HERBAL",
+      "nutraceutical": "SUPPLEMENT",
+      "supplement": "SUPPLEMENT",
+      "traditional_medicine": "AYUSH"
+    },
+    "enum": [
+      "SUPPLEMENT",
+      "HERBAL",
+      "FOOD",
+      "AYUSH"
+    ],
+    "labels": {
+      "AYUSH": "AYUSH / Ayurvedic medicine",
+      "FOOD": "Functional / conventional food",
+      "HERBAL": "Herbal / botanical product",
+      "SUPPLEMENT": "Nutraceutical / food supplement"
+    }
+  },
+  "target_market": {
+    "aliases": {
+      "au": "AU",
+      "australia": "AU",
+      "ca": "CA",
+      "canada": "CA",
+      "eu": "EU",
+      "europe": "EU",
+      "european_union": "EU",
+      "fda": "US",
+      "gb": "UK",
+      "gcc": "GULF",
+      "great_britain": "UK",
+      "gulf": "GULF",
+      "in": "IN",
+      "india": "IN",
+      "new_zealand": "NZ",
+      "nz": "NZ",
+      "oman": "GULF",
+      "uk": "UK",
+      "united_kingdom": "UK",
+      "united_states": "US",
+      "us": "US",
+      "usa": "US"
+    },
+    "e_fallbacks": {
+      "AU": "NZ"
+    },
+    "e_supported": [
+      "EU",
+      "GULF",
+      "NZ",
+      "UK",
+      "US"
+    ],
+    "enum": [
+      "US",
+      "EU",
+      "NZ",
+      "AU",
+      "IN",
+      "UK",
+      "CA",
+      "GULF"
+    ],
+    "labels": {
+      "AU": "Australia (FSANZ / TGA)",
+      "CA": "Canada (Health Canada)",
+      "EU": "European Union (EFSA / DG SANTE)",
+      "GULF": "Gulf / Oman (GSO / Oman MoH)",
+      "IN": "India (FSSAI / AYUSH)",
+      "NZ": "New Zealand (FSANZ / MPI / Medsafe)",
+      "UK": "United Kingdom \u2014 Great Britain (MHRA / FSA)",
+      "US": "United States (FDA)"
+    }
+  },
+  "title": "Herbenzo canonical category and market enums",
+  "unknown_policy": {
+    "default": "warn_meta",
+    "note": "Never invent SUPPLEMENT or US when the input is a non-empty unrecognized value. Empty market \u2192 US only for E.",
+    "strict": "fail_closed"
+  }
+}

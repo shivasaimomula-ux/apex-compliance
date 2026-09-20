@@ -11,7 +11,7 @@ import {
   calculateReadinessScore,
   DOC_CHAR_LIMIT,
 } from '../lib/readiness.js';
-import { resolveProductCategory, C_TO_E_CATEGORY_MAP } from '../lib/category-map.js';
+import { resolveProductCategory, resolveTargetMarket, C_TO_E_CATEGORY_MAP } from '../lib/category-map.js';
 
 describe('calculateReadinessScore', () => {
   it('scores empty violations as 100 / EXPORT_READY', () => {
@@ -133,5 +133,39 @@ describe('resolveProductCategory (C→E map)', () => {
     assert.equal(C_TO_E_CATEGORY_MAP.ayurvedic, 'AYUSH');
     assert.equal(C_TO_E_CATEGORY_MAP.botanical, 'HERBAL');
     assert.equal(C_TO_E_CATEGORY_MAP.functional_food, 'FOOD');
+  });
+
+  it('does not invent SUPPLEMENT for MeSH indications', () => {
+    const r = resolveProductCategory('anti-inflammatory');
+    assert.equal(r.category, null);
+    assert.equal(r.dropped, true);
+  });
+});
+
+describe('resolveTargetMarket (Task T8)', () => {
+  it('passes through US', () => {
+    const r = resolveTargetMarket('US');
+    assert.equal(r.market, 'US');
+    assert.equal(r.dropped, false);
+  });
+
+  it('maps AU → NZ with warning', () => {
+    const r = resolveTargetMarket('AU');
+    assert.equal(r.market, 'NZ');
+    assert.ok(r.warning);
+    assert.equal(r.dropped, false);
+  });
+
+  it('drops IN without silent US fallback', () => {
+    const r = resolveTargetMarket('IN');
+    assert.equal(r.market, null);
+    assert.equal(r.dropped, true);
+    assert.match(r.warning || '', /refusing silent US fallback/);
+  });
+
+  it('defaults empty to US', () => {
+    const r = resolveTargetMarket(null);
+    assert.equal(r.market, 'US');
+    assert.equal(r.dropped, false);
   });
 });

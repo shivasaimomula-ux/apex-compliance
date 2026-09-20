@@ -76,11 +76,17 @@ for real compliance output.
   report is rendered across all views; the FDA Readiness Score for AI analyses is **read from
   server `_meta`** (demo/offline docs may still use local math labeled as non-pipeline).
 
-### C → E category map
+### C → E category / market map (Task T8)
 
-Stage A/C/glue often send `dietary_supplement` (snake_case). E maps those aliases to
-`SUPPLEMENT` | `HERBAL` | `FOOD` | `AYUSH` (see `lib/category-map.js`). Unknown values set
-`_meta.categoryResolution.dropped=true` instead of silently omitting the regulatory lens.
+Shared enums live in `herbenzo-contracts` (`schemas/enums.v1.json`, mirrored at
+`lib/enums.v1.json`). Stage A/C/glue aliases such as `dietary_supplement` map to
+`SUPPLEMENT` | `HERBAL` | `FOOD` | `AYUSH`. Prefer `regulatory_category` on the
+structured Dossier when present; `product_category` remains C's MeSH / indication
+string and must **not** silently become a regulatory lens.
+
+Unknown values set `_meta.categoryResolution.dropped=true` (or
+`marketResolution.dropped`) instead of inventing SUPPLEMENT / US. AU maps to NZ
+(FSANZ) with a warning. Empty market still defaults to US for E.
 
 ### `_meta` readiness contract (pipeline)
 
