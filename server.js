@@ -22,6 +22,7 @@ import {
 } from './lib/readiness.js';
 import { validateAnalyzeResponse } from './lib/contract_validate.js';
 import { resolveAnalyzeIntake } from './lib/dossier_intake.js';
+import { corsMiddleware, parseCorsAllowlist } from './lib/cors.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +56,14 @@ function loadDotEnv() {
 loadDotEnv();
 // Default 8002 so Stage E does not clash with Stage A on :8000.
 const PORT = process.env.PORT || 8002;
+
+let CORS_ALLOWLIST;
+try {
+  CORS_ALLOWLIST = parseCorsAllowlist(process.env.CORS_ALLOW_ORIGINS);
+} catch (err) {
+  console.error(`APEX CORS config error: ${err.message}`);
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------------------
 // LLM providers. APEX can run on Anthropic (Claude) OR NVIDIA (Nemotron, via
@@ -116,23 +125,8 @@ function parseReportJson(text) {
 
 const app = express();
 
-// CORS for cross-origin Stage C / pipeline callers (localhost ports differ).
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Requested-With',
-  );
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
+// CORS: known stage origins only (F/A/B/C/E localhost ports). Never reflect arbitrary Origin.
+app.use(corsMiddleware(CORS_ALLOWLIST));
 
 // Accept JSON dossiers and raw markdown/plain text (C → E handoff).
 app.use(express.json({ limit: '10mb' }));
@@ -703,4 +697,5 @@ app.listen(PORT, () => {
     ? `AI analysis ENABLED — provider: ${provider} (${activeModel()})`
     : 'AI analysis DISABLED — add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file';
   console.log(`APEX Compliance Platform running at http://localhost:${PORT}  •  ${aiState}`);
+  console.log(`CORS allowlist (${CORS_ALLOWLIST.length} origins): stage F/A/B/C/E localhost ports; override with CORS_ALLOW_ORIGINS`);
 });

@@ -56,7 +56,10 @@ curl -s -X POST http://localhost:8002/api/analyze \
   --data-binary @dossier.md
 ```
 
-CORS is enabled so callers on other localhost ports can POST `/api/analyze`.
+CORS is an **allowlist** of known stage origins (F `:7860`/`:8081`, A `:8000`, E `:8002`,
+B `:8003`, C `:8010`, plus `127.0.0.1` twins and `null` for `file://`). Arbitrary `Origin`
+is **not** reflected. Override with `CORS_ALLOW_ORIGINS` (JSON array or comma-separated).
+Glue/curl callers send no `Origin` and are unaffected. Never set `*`.
 
 ### Without an API key
 
