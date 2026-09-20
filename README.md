@@ -8,6 +8,9 @@ prioritized violations with CFR citations, claim reframing, and ingredient flags
 
 ## Running it
 
+> **Pipeline Stage E = this tree only** (`apex_compliance_platform-harden-e`).  
+> Do **not** launch the base Desktop folder `apex_compliance_platform` for glue/pipeline work.
+
 ```bash
 npm install
 
@@ -17,6 +20,10 @@ export NVIDIA_API_KEY=nvapi-...          # get one at https://build.nvidia.com
 npm start                                # → http://localhost:8002
 ```
 
+**Double-click launcher:** `Start APEX.command` resolves to **this** worktree (via `$0`),
+prints a **HARDEN-E** banner with the absolute path, and **refuses** if it somehow runs from
+the base tree (Audit Finding #16). Prefer `npm start` from this directory when scripting.
+
 Open http://localhost:8002, go to **Document Audit → Upload Your Document**, add one or
 more files (PDF / TXT / CSV / Markdown), and click **🤖 Analyze Full Dossier with AI**.
 Results populate the Dashboard, Document Audit, Product Classification, and Claim Translator views.
@@ -24,7 +31,7 @@ Results populate the Dashboard, Document Audit, Product Classification, and Clai
 ### Port
 
 Default **`PORT=8002`** so Stage E does not clash with Stage A on `:8000`. Override with
-`PORT=… npm start`. Prefer that over `Start APEX.command` while Stage A is running.
+`PORT=… npm start` or `PORT=… ./Start\ APEX.command`.
 
 ### Pipeline handoff (Stage C → E)
 
