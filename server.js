@@ -14,8 +14,57 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveProductCategory, resolveTargetMarket } from './lib/category-map.js';
+import {
+  applyDocumentCharLimit,
+  buildReadinessMeta,
+  DOC_CHAR_LIMIT,
+} from './lib/readiness.js';
+import { validateAnalyzeResponse } from './lib/contract_validate.js';
+import { resolveAnalyzeIntake } from './lib/dossier_intake.js';
+import { corsMiddleware, parseCorsAllowlist } from './lib/cors.js';
+import {
+  HumanReviewStore,
+  computeComplianceHash,
+  createReportId,
+  humanReviewGatePolicy,
+  validateReviewSubmission,
+  JURISDICTION_DISCLAIMER,
+} from './lib/human-review.js';
+import {
+  extendProvenanceForE,
+  extractInboundProvenance,
+} from './lib/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const reviewStore = new HumanReviewStore(
+  path.join(__dirname, 'data', 'human-reviews.json'),
+);
+
+/**
+ * Recompute readiness `_meta` for a stored report + optional review record.
+ * @param {object} report
+ * @param {object|null} humanReview
+ */
+function applyReadinessToReport(report, humanReview = null) {
+  const meta = report._meta || {};
+  const readiness = buildReadinessMeta({
+    violations: report.violations,
+    truncation: meta.truncation,
+    categoryResolution: meta.categoryResolution,
+    marketResolution: meta.marketResolution,
+    humanReview,
+    policy: humanReviewGatePolicy(process.env),
+  });
+  report._meta = {
+    ...meta,
+    ...readiness,
+    reportId: meta.reportId || null,
+    complianceHash: meta.complianceHash || computeComplianceHash(report),
+    provenanceThread: meta.provenanceThread || null,
+  };
+  return report;
+}
 
 // ---------------------------------------------------------------------------
 // Minimal .env loader (no dependency). Reads KEY=VALUE lines from ./.env and
@@ -45,12 +94,22 @@ function loadDotEnv() {
   }
 }
 loadDotEnv();
-const PORT = process.env.PORT || 8000;
+// Default 8002 so Stage E does not clash with Stage A on :8000.
+const PORT = process.env.PORT || 8002;
+const HUMAN_REVIEW_POLICY = humanReviewGatePolicy(process.env);
+
+let CORS_ALLOWLIST;
+try {
+  CORS_ALLOWLIST = parseCorsAllowlist(process.env.CORS_ALLOW_ORIGINS);
+} catch (err) {
+  console.error(`APEX CORS config error: ${err.message}`);
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------------------
 // LLM providers. APEX can run on Anthropic (Claude) OR NVIDIA (Nemotron, via
 // its OpenAI-compatible endpoint). Provider is chosen by APEX_PROVIDER, else
-// auto-detected from whichever key is present (Anthropic preferred).
+// auto-detected from whichever key is present (NVIDIA preferred, Claude fallback).
 // ---------------------------------------------------------------------------
 const MODEL = process.env.APEX_MODEL || 'claude-opus-4-8';              // Anthropic model
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'nvidia/llama-3.3-nemotron-super-49b-v1';
@@ -67,13 +126,13 @@ function nvidiaKeyOk() {
 }
 
 // Resolve the active provider: explicit APEX_PROVIDER wins (if its key is set),
-// otherwise prefer Anthropic, then NVIDIA. Returns null when no usable key.
+// otherwise prefer NVIDIA, then Anthropic (Claude). Returns null when no usable key.
 function resolveProvider() {
   const p = (process.env.APEX_PROVIDER || '').toLowerCase();
   if (p === 'nvidia' && nvidiaKeyOk()) return 'nvidia';
   if (p === 'anthropic' && anthropicKeyOk()) return 'anthropic';
-  if (anthropicKeyOk()) return 'anthropic';
   if (nvidiaKeyOk()) return 'nvidia';
+  if (anthropicKeyOk()) return 'anthropic';
   return null;
 }
 
@@ -106,7 +165,16 @@ function parseReportJson(text) {
 }
 
 const app = express();
+
+// CORS: known stage origins only (F/A/B/C/E localhost ports). Never reflect arbitrary Origin.
+app.use(corsMiddleware(CORS_ALLOWLIST));
+
+// Accept JSON dossiers and raw markdown/plain text (C → E handoff).
 app.use(express.json({ limit: '10mb' }));
+app.use(express.text({
+  type: ['text/markdown', 'text/x-markdown', 'text/plain'],
+  limit: '10mb',
+}));
 
 // ---------------------------------------------------------------------------
 // Compliance analysis schema — Claude is constrained to return exactly this.
@@ -412,12 +480,13 @@ function buildSystemPrompt(marketKey, categoryKey) {
   const cat = CATEGORY_BRIEFS[categoryKey];
   const catBlock = cat
     ? `\n\n=== STATED PRODUCT CATEGORY: ${cat.label} ===\n${cat.brief}\n\nUse the stated category as the expected regulatory lens, but CLASSIFY HONESTLY from the actual claims and composition in the dossier — if the evidence contradicts the stated category (e.g. a "food supplement" that carries disease claims), say so explicitly and classify on the facts.`
-    : '';
-  // Every market composes the SAME rigorous base + an equally-detailed brief,
-  // so non-US markets get the same depth of analysis as the US/FDA one.
-  const m = MARKET_BRIEFS[marketKey] || MARKET_BRIEFS.US;
-  const base = `${BASE_SYSTEM}\n\n=== TARGET MARKET: ${m.label} ===\n${m.brief}`;
-  return base + catBlock;
+    : '\n\n=== STATED PRODUCT CATEGORY: UNRESOLVED ===\nNo regulatory-category lens was recognized. Do not assume dietary-supplement framing; flag the missing category as a gap.';
+  // Task T8: never silently fall back to US when market is unresolved.
+  const m = marketKey && MARKET_BRIEFS[marketKey] ? MARKET_BRIEFS[marketKey] : null;
+  const marketBlock = m
+    ? `\n\n=== TARGET MARKET: ${m.label} ===\n${m.brief}`
+    : `\n\n=== TARGET MARKET: UNRESOLVED ===\nNo dedicated jurisdiction brief applied. Do NOT assume US/FDA. Flag the missing or unsupported market as a gap.`;
+  return `${BASE_SYSTEM}${marketBlock}${catBlock}`;
 }
 
 function buildUserPrompt({ productName, documents, formText, marketLabel, categoryLabel }) {
@@ -427,7 +496,8 @@ function buildUserPrompt({ productName, documents, formText, marketLabel, catego
   if (Array.isArray(documents) && documents.length) {
     parts.push(`\n=== ${documents.length} DOCUMENT(S) IN DOSSIER ===`);
     documents.forEach((d, i) => {
-      const text = (d.text || '').slice(0, 20000);
+      // Documents are pre-truncated via applyDocumentCharLimit (surfaced on _meta).
+      const text = d.text || '';
       parts.push(`\n--- Document ${i + 1}: ${d.name || 'untitled'} ---\n${text}`);
     });
   }
@@ -494,42 +564,78 @@ async function callNvidia({ system, userPrompt }) {
 
 app.post('/api/analyze', async (req, res) => {
   if (!hasUsableKey()) {
+    // Hard fail — regex/offline analysis is UI demo only and is never success here.
     return res.status(503).json({
       error: 'no_api_key',
       message:
-        'No valid API key is set. Add an Anthropic (sk-ant-...) or NVIDIA (nvapi-...) key to the .env file and restart.',
+        'No valid API key is set. Add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file and restart. Regex fallback is not pipeline success.',
     });
   }
-  // Per-request provider override from the UI dropdown, if that provider has a
-  // usable key; otherwise fall back to the env-configured default.
-  const requestedProvider = (req.body && typeof req.body.provider === 'string')
-    ? req.body.provider.toLowerCase()
+  // Normalize intake: prefer structured Dossier (Task T7), else markdown/docs.
+  const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body))
+    ? req.body
+    : {};
+  const requestedProvider = (typeof body.provider === 'string')
+    ? body.provider.toLowerCase()
     : null;
   const provider = (requestedProvider && providerUsable(requestedProvider))
     ? requestedProvider
     : resolveProvider();
 
-  const { productName, documents, formText } = req.body || {};
-  // Target market (default US for backward compatibility).
-  const market = (req.body && typeof req.body.market === 'string' && MARKETS[req.body.market])
-    ? req.body.market
-    : 'US';
-  const marketLabel = MARKETS[market];
-  // Product category (optional; sets the expected regulatory lens).
-  const category = (req.body && typeof req.body.category === 'string' && CATEGORIES[req.body.category])
-    ? req.body.category
-    : null;
-  const categoryLabel = category ? CATEGORIES[category] : null;
+  const intake = resolveAnalyzeIntake(body, req.body);
+  if (!intake.ok) {
+    return res.status(intake.status).json(intake.body);
+  }
+
+  let { productName, documents, formText } = intake;
+  if (!productName && typeof body.productName === 'string') {
+    productName = body.productName;
+  }
+
+  // Target market via shared enum adapter (Task T8). Empty → US; unknown non-empty
+  // does not silently become US (except documented AU→NZ FSANZ fallback).
+  const marketCandidate =
+    (typeof body.market === 'string' && body.market) ||
+    intake.marketHint ||
+    null;
+  const marketResolution = resolveTargetMarket(marketCandidate);
+  // null when dropped — do not invent US for a non-empty unsupported market.
+  const market = marketResolution.market;
+  const marketLabel =
+    marketResolution.marketLabel ||
+    (marketResolution.dropped
+      ? `UNRESOLVED (${marketResolution.input || 'unknown'})`
+      : MARKETS.US);
+  // Product category: prefer body.category, then dossier.regulatory_category /
+  // product_category aliases. Unknown → dropped (no silent SUPPLEMENT).
+  const categoryRaw =
+    (typeof body.category === 'string' && body.category) ||
+    (typeof body.regulatoryCategory === 'string' && body.regulatoryCategory) ||
+    intake.categoryHint ||
+    null;
+  const categoryResolution = resolveProductCategory(categoryRaw);
+  const category = categoryResolution.category;
+  const categoryLabel = categoryResolution.categoryLabel;
   const hasDocs = Array.isArray(documents) && documents.some((d) => d && d.text && d.text.trim());
   if (!hasDocs && !(formText && formText.trim())) {
     return res.status(400).json({
       error: 'empty_dossier',
-      message: 'Provide at least one document or some intake text to analyze.',
+      message: 'Provide at least one document, markdown body, or intake text to analyze.',
     });
   }
 
+  const { documents: limitedDocs, truncation } = applyDocumentCharLimit(
+    Array.isArray(documents) ? documents : [],
+    DOC_CHAR_LIMIT,
+  );
   const system = buildSystemPrompt(market, category);
-  const userPrompt = buildUserPrompt({ productName, documents, formText, marketLabel, categoryLabel });
+  const userPrompt = buildUserPrompt({
+    productName,
+    documents: limitedDocs,
+    formText,
+    marketLabel,
+    categoryLabel,
+  });
 
   try {
     const result = provider === 'nvidia'
@@ -550,6 +656,16 @@ app.post('/api/analyze', async (req, res) => {
       return res.status(502).json({ error: 'parse_error', message: 'Could not parse the analysis output.' });
     }
 
+    const reportId = createReportId();
+    const readiness = buildReadinessMeta({
+      violations: report.violations,
+      truncation,
+      categoryResolution,
+      marketResolution,
+      humanReview: null,
+      policy: HUMAN_REVIEW_POLICY,
+    });
+
     report._meta = {
       provider,
       model: result.model,
@@ -559,7 +675,25 @@ app.post('/api/analyze', async (req, res) => {
       marketLabel,
       category,
       categoryLabel,
+      dossierIntake: intake.intake,
+      reportId,
+      ...readiness,
     };
+    report._meta.complianceHash = computeComplianceHash(report);
+    const dossierObj =
+      body.dossier && typeof body.dossier === 'object' && !Array.isArray(body.dossier)
+        ? body.dossier
+        : null;
+    const inboundThread = extractInboundProvenance(body, dossierObj);
+    report._meta.provenanceThread = extendProvenanceForE(inboundThread, {
+      complianceHash: report._meta.complianceHash,
+      reportId,
+    });
+    const gate = validateAnalyzeResponse(report);
+    if (!gate.ok) {
+      return res.status(gate.status).json(gate.body);
+    }
+    reviewStore.saveReportSnapshot(reportId, report);
     res.json(report);
   } catch (err) {
     const status = err?.status || 500;
@@ -581,6 +715,68 @@ app.get('/api/health', (_req, res) => {
     providers: { anthropic: anthropicKeyOk(), nvidia: nvidiaKeyOk() },
     models: { anthropic: MODEL, nvidia: NVIDIA_MODEL },
     markets: MARKETS,
+    readinessContract: true,
+    docCharLimit: DOC_CHAR_LIMIT,
+    humanReviewGate: HUMAN_REVIEW_POLICY,
+    humanReviewDisclaimer: JURISDICTION_DISCLAIMER,
+  });
+});
+
+/**
+ * Human Review Gate — named sign-off before export release (Task T20).
+ * Body: { reportId, reviewerId, reviewerName, jurisdictionDisclaimerAck: true,
+ *         decision?: "approve"|"reject", notes?: string }
+ */
+app.post('/api/human-review', (req, res) => {
+  const validated = validateReviewSubmission(req.body || {});
+  if (!validated.ok) {
+    return res.status(validated.status).json(validated.body);
+  }
+  const stored = reviewStore.submitReview(validated.record);
+  if (!stored.ok) {
+    return res.status(stored.status).json(stored.body);
+  }
+  const report = applyReadinessToReport(
+    structuredClone(stored.report),
+    stored.review.decision === 'approve' ? stored.review : null,
+  );
+  // Persist refreshed meta so subsequent GETs see the same gate truth.
+  reviewStore.saveReportSnapshot(validated.record.reportId, report);
+  return res.json({
+    ok: true,
+    reportId: validated.record.reportId,
+    humanReview: report._meta.humanReview,
+    released: report._meta.released,
+    exportAuthorized: report._meta.exportAuthorized,
+    band: report._meta.band,
+    readinessScore: report._meta.readinessScore,
+    humanReviewRequired: report._meta.humanReviewRequired,
+    _meta: report._meta,
+    report,
+  });
+});
+
+/** Fetch stored report + review state (same `_meta` contract as analyze). */
+app.get('/api/human-review/:reportId', (req, res) => {
+  const reportId = String(req.params.reportId || '').trim();
+  const snap = reviewStore.getSnapshot(reportId);
+  if (!snap) {
+    return res.status(404).json({
+      error: 'report_not_found',
+      message: `No stored analyze report for reportId=${reportId}`,
+    });
+  }
+  const existing = reviewStore.getReview(reportId);
+  const humanReview =
+    existing && existing.decision === 'approve' ? existing : null;
+  const report = applyReadinessToReport(structuredClone(snap.report), humanReview);
+  return res.json({
+    reportId,
+    humanReview: report._meta.humanReview,
+    released: report._meta.released,
+    exportAuthorized: report._meta.exportAuthorized,
+    _meta: report._meta,
+    report,
   });
 });
 
@@ -611,6 +807,7 @@ app.listen(PORT, () => {
   const provider = resolveProvider();
   const aiState = provider
     ? `AI analysis ENABLED — provider: ${provider} (${activeModel()})`
-    : 'AI analysis DISABLED — add an Anthropic (sk-ant-...) or NVIDIA (nvapi-...) key to the .env file';
+    : 'AI analysis DISABLED — add an NVIDIA (nvapi-...) or Anthropic (sk-ant-...) key to the .env file';
   console.log(`APEX Compliance Platform running at http://localhost:${PORT}  •  ${aiState}`);
+  console.log(`CORS allowlist (${CORS_ALLOWLIST.length} origins): stage F/A/B/C/E localhost ports; override with CORS_ALLOW_ORIGINS`);
 });

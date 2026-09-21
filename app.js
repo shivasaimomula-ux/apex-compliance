@@ -52,6 +52,15 @@ document.addEventListener('DOMContentLoaded', () => {
     dashboardViolationsCount: document.getElementById('dashboard-violations-count'),
     dashboardRemediationList: document.getElementById('dashboard-remediation-list'),
     dashboardProductName: document.getElementById('dashboard-product-name'),
+    dashboardReleaseStatus: document.getElementById('dashboard-release-status'),
+    humanReviewForm: document.getElementById('human-review-form'),
+    humanReviewStatus: document.getElementById('human-review-status'),
+    provenanceThreadStatus: document.getElementById('provenance-thread-status'),
+    humanReviewId: document.getElementById('human-review-id'),
+    humanReviewName: document.getElementById('human-review-name'),
+    humanReviewDisclaimer: document.getElementById('human-review-disclaimer'),
+    humanReviewDisclaimerText: document.getElementById('human-review-disclaimer-text'),
+    humanReviewSubmit: document.getElementById('human-review-submit'),
 
     // Document Parsing
     docSelectors: document.querySelectorAll('.doc-select-btn'),
@@ -173,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupMarketTabs();
     renderMarketsView('US');
     initDisclaimer();
+    setupHumanReviewGate();
 
     // Set upload mode to live by default
     setUploadMode('live');
@@ -370,11 +380,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const docName = DOM.pasteDocName.value.trim() || 'Pasted_Document.txt';
-      if (state.aiEnabled) {
-        analyzeDossier([{ name: docName, text }]);
-      } else {
-        runLiveAnalysis(text, docName, text.length);
-      }
+      // Regex offline path is demo-only and must not count as pipeline success.
+      analyzeDossier([{ name: docName, text }]);
     });
   }
 
@@ -392,7 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ext === 'pdf') {
         setDropzoneProcessing(true, 'Extracting text from PDF pages...');
         rawText = await extractTextFromPDF(file);
-      } else if (['txt', 'csv', 'tsv'].includes(ext)) {
+      } else if (['txt', 'csv', 'tsv', 'md', 'markdown'].includes(ext)) {
         setDropzoneProcessing(true, 'Reading text file...');
         rawText = await readTextFile(file);
       } else {
@@ -400,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setDropzoneState('error',
           '⚠️',
           `Unsupported File Format (.${ext})`,
-          `PDF and TXT files are supported for live analysis. For JPG/TIFF scans, use the "Paste Document Text" option below to paste the content manually.`
+          `PDF, TXT, CSV, and Markdown files are supported. For JPG/TIFF scans, use the "Paste Document Text" option below.`
         );
         return;
       }
@@ -412,10 +419,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      setDropzoneProcessing(true, 'Running FDA compliance analysis...');
-      await sleep(600); // brief pause for UX
-
-      runLiveAnalysis(rawText, file.name, file.size);
+      setDropzoneProcessing(true, 'Queuing for AI compliance analysis...');
+      await sleep(200);
+      // Prefer AI path; do not treat regex as success.
+      if (state.aiEnabled) {
+        await analyzeDossier([{ name: file.name, text: rawText }]);
+      } else {
+        setDropzoneProcessing(false);
+        setDropzoneState('error', '⚠️', 'AI key required',
+          'Offline regex analysis is not pipeline success. Set NVIDIA_API_KEY or ANTHROPIC_API_KEY and restart.');
+      }
 
     } catch (err) {
       console.error('File processing error:', err);
@@ -475,16 +488,136 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       state.aiEnabled = !!data.aiEnabled;
       populateProviders(data);
+      if (data.humanReviewDisclaimer && DOM.humanReviewDisclaimerText) {
+        DOM.humanReviewDisclaimerText.textContent = data.humanReviewDisclaimer;
+      }
       setAiStatus(
         state.aiEnabled ? 'online' : 'offline',
         state.aiEnabled
-          ? `AI analysis online — powered by ${data.model || 'Claude'}`
-          : 'AI engine reachable, but no API key is set. Using offline rule-based analysis.'
+          ? `AI analysis online — powered by ${data.model || data.provider || 'LLM'}`
+          : 'AI engine reachable, but no API key is set. Pipeline analysis unavailable (regex is not success).'
       );
     } catch {
       state.aiEnabled = false;
-      setAiStatus('offline', 'Backend not running — using offline rule-based analysis. Run "npm start" with an API key for AI mode.');
+      setAiStatus('offline', 'Backend not running — pipeline analysis unavailable. Run "npm start" with an NVIDIA or Anthropic key.');
     }
+  }
+
+  function updateHumanReviewPanel(meta) {
+    const m = meta || {};
+    const reportId = m.reportId || (state.lastReport && state.lastReport._meta && state.lastReport._meta.reportId);
+    if (DOM.provenanceThreadStatus) {
+      const pt = m.provenanceThread || {};
+      const chain =
+        pt.chain ||
+        [
+          pt.specId ? `spec_id=${pt.specId}` : null,
+          pt.formulationId ? `formulation_id=${pt.formulationId}` : null,
+          pt.skuId ? `sku_id=${pt.skuId}` : null,
+          pt.dossierHash ? `dossier_hash=${String(pt.dossierHash).slice(0, 12)}…` : null,
+          pt.complianceHash ? `compliance_hash=${String(pt.complianceHash).slice(0, 12)}…` : null,
+        ]
+          .filter(Boolean)
+          .join(' → ');
+      DOM.provenanceThreadStatus.textContent = chain
+        ? `Provenance: ${chain}`
+        : 'Provenance thread appears here after analyze (spec → formulation → sku → dossier_hash → compliance_hash).';
+    }
+    if (DOM.dashboardReleaseStatus) {
+      if (m.released === true || m.exportAuthorized === true) {
+        DOM.dashboardReleaseStatus.textContent = 'released (human review on file)';
+        DOM.dashboardReleaseStatus.style.color = 'var(--clr-success-50)';
+      } else if (m.humanReviewRequired) {
+        DOM.dashboardReleaseStatus.textContent = 'blocked — human review required';
+        DOM.dashboardReleaseStatus.style.color = 'var(--clr-warning-50)';
+      } else {
+        DOM.dashboardReleaseStatus.textContent = 'not released';
+        DOM.dashboardReleaseStatus.style.color = '';
+      }
+    }
+    if (!DOM.humanReviewStatus) return;
+    if (!reportId) {
+      DOM.humanReviewStatus.textContent =
+        'Analyze a dossier first. EXPORT READY scores require a named sign-off before released.';
+      if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+      return;
+    }
+    if (m.humanReview && m.humanReview.reviewerName) {
+      DOM.humanReviewStatus.textContent =
+        `Signed off by ${m.humanReview.reviewerName} (${m.humanReview.reviewerId}) at ${m.humanReview.reviewedAt}` +
+        (m.released ? ' · released=true' : ' · released=false');
+      if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+      return;
+    }
+    DOM.humanReviewStatus.textContent =
+      `Report ${reportId} · band=${m.band || '?'} · gate=${m.humanReviewGate || 'enforce'}` +
+      (m.humanReviewRequired
+        ? ' · submit named sign-off to authorize export language.'
+        : ' · sign-off optional for this band (export still not released unless EXPORT_READY).');
+    if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = false;
+  }
+
+  function setupHumanReviewGate() {
+    if (!DOM.humanReviewForm) return;
+    if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = true;
+    DOM.humanReviewForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const reportId =
+        state.lastReport && state.lastReport._meta && state.lastReport._meta.reportId;
+      if (!reportId) {
+        alert('Run AI analyze first so the server has a reportId to sign.');
+        return;
+      }
+      const reviewerId = (DOM.humanReviewId && DOM.humanReviewId.value.trim()) || '';
+      const reviewerName = (DOM.humanReviewName && DOM.humanReviewName.value.trim()) || '';
+      const ack = !!(DOM.humanReviewDisclaimer && DOM.humanReviewDisclaimer.checked);
+      if (!reviewerId || !reviewerName || !ack) {
+        alert('Reviewer id, name, and jurisdiction disclaimer acknowledgement are required.');
+        return;
+      }
+      if (DOM.humanReviewSubmit) {
+        DOM.humanReviewSubmit.disabled = true;
+        DOM.humanReviewSubmit.textContent = 'Submitting…';
+      }
+      try {
+        const res = await fetch('/api/human-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reportId,
+            reviewerId,
+            reviewerName,
+            jurisdictionDisclaimerAck: true,
+            decision: 'approve',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Sign-off failed');
+        if (data.report) {
+          state.lastReport = data.report;
+        } else if (state.lastReport && data._meta) {
+          state.lastReport._meta = data._meta;
+        }
+        const violations = (state.lastReport && state.lastReport.violations) || [];
+        const scoreReport = scoreReportFromMetaOrLocal(
+          violations,
+          state.lastReport && state.lastReport._meta,
+        );
+        updateDashboardScores(scoreReport, violations);
+        updateHumanReviewPanel(state.lastReport && state.lastReport._meta);
+        setAiStatus(
+          'online',
+          data.released
+            ? `Human review approved — released=true (${reviewerName})`
+            : `Human review recorded — released=false (band=${data.band})`,
+        );
+      } catch (err) {
+        alert(`Human review failed: ${err.message}`);
+        if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.disabled = false;
+      } finally {
+        if (DOM.humanReviewSubmit) DOM.humanReviewSubmit.textContent = 'Submit sign-off';
+      }
+    });
   }
 
   // Build the AI-engine dropdown from the providers/models the backend reports.
@@ -515,9 +648,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function stageFiles(files) {
-    const accepted = files.filter(f => /\.(pdf|txt|csv|tsv)$/i.test(f.name));
+    const accepted = files.filter(f => /\.(pdf|txt|csv|tsv|md|markdown)$/i.test(f.name));
     if (accepted.length === 0) {
-      setDropzoneState('error', '⚠️', 'Unsupported File Type', 'Please add PDF or TXT files. For images/scans, use the paste-text option below.');
+      setDropzoneState('error', '⚠️', 'Unsupported File Type', 'Please add PDF, TXT, CSV, or Markdown (.md) files. For images/scans, use the paste-text option below.');
       return;
     }
     for (const file of accepted) {
@@ -573,9 +706,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.analyzing) return;
 
     if (!state.aiEnabled) {
-      // Offline fallback: run the rule-based engine on the combined text.
-      const combined = docs.map(d => `--- ${d.name} ---\n${d.text}`).join('\n\n');
-      runLiveAnalysis(combined, docs[0].name, combined.length);
+      // No regex-as-success: offline rule engine is not pipeline output.
+      alert('AI analysis is required for a valid compliance report. Set NVIDIA_API_KEY or ANTHROPIC_API_KEY and restart the server. Offline regex analysis is demo-only and does not count as success.');
+      setAiStatus('offline', 'Pipeline blocked — no API key. Regex is not treated as success.');
       return;
     }
 
@@ -601,7 +734,10 @@ document.addEventListener('DOMContentLoaded', () => {
       renderAiReport(data, docs);
       const mkt = data._meta?.marketLabel ? ` for ${data._meta.marketLabel}` : '';
       const cat = data._meta?.categoryLabel ? ` (${data._meta.categoryLabel})` : '';
-      setAiStatus('online', `Analysis complete${mkt}${cat} — ${data.violations.length} finding(s). Powered by ${data._meta?.model || 'Claude'}.`);
+      setAiStatus('online', `Analysis complete${mkt}${cat} — ${data.violations.length} finding(s)` +
+        (data._meta?.readinessScore != null ? ` · FRS ${data._meta.readinessScore} (${data._meta.bandLabel || data._meta.band})` : '') +
+        (data._meta?.pipelineReady ? ' · pipelineReady' : '') +
+        ` — ${data._meta?.model || 'AI'}.`);
     } catch (err) {
       setAiStatus('offline', `Analysis error: ${err.message}`);
       alert(`AI analysis failed: ${err.message}`);
@@ -619,7 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.lastReport = report;
     state.lastReportDocs = docs || [];
 
-    // --- Dashboard (reuses the readiness engine) ---
+    // --- Dashboard: consume server `_meta` readiness (pipeline truth) ---
     if (DOM.dashboardProductName) DOM.dashboardProductName.textContent = report.productName || 'Analyzed Product';
     // Reflect the analyzed market in the readiness-score heading.
     const headingEl = document.getElementById('readiness-score-heading');
@@ -627,8 +763,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const mkt = report._meta && report._meta.marketLabel;
       headingEl.textContent = mkt ? `Export Readiness Score — ${mkt}` : 'Export Readiness Score';
     }
-    const scoreReport = calculateFDAReadinessScore(violations);
+    const scoreReport = scoreReportFromMetaOrLocal(violations, report._meta);
     updateDashboardScores(scoreReport, violations);
+    if (scoreReport.truncated && DOM.dashboardScoreDesc) {
+      DOM.dashboardScoreDesc.textContent =
+        `${scoreReport.band.desc} ⚠ Dossier truncated before analysis — see _meta.truncation.`;
+    }
+    if (scoreReport.fromServer && scoreReport.humanReviewRequired && scoreReport.band.key === 'EXPORT_READY') {
+      DOM.dashboardScoreDesc.textContent =
+        `${scoreReport.band.desc} Human review required before export authorization.`;
+    }
+    updateHumanReviewPanel(report._meta);
 
     // --- Document Audit panel ---
     const primary = (docs && docs[0]) || { name: report.productName, text: '' };
@@ -1323,6 +1468,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // ==========================================================================
   // 14. FRS SCORE ENGINE
   // ==========================================================================
+  // Demo / offline docs may still compute locally. AI / pipeline reports MUST
+  // prefer server `_meta` (readinessScore / band / pipelineReady) — client math
+  // is not pipeline truth (Task T3 / Audit #6).
   const PILLAR_WEIGHTS = {
     product_classification: 0.15,
     labeling_compliance: 0.25,
@@ -1331,6 +1479,37 @@ document.addEventListener('DOMContentLoaded', () => {
     import_admissibility: 0.15
   };
   const SEVERITY_DEDUCTIONS = { CRITICAL: 1.00, HIGH: 0.60, MEDIUM: 0.30, LOW: 0.10 };
+  const BAND_COLORS = {
+    EXPORT_READY: 'var(--clr-success-50)',
+    CONDITIONAL_READY: 'var(--clr-warning-50)',
+    SIGNIFICANT_REMEDIATION: 'orange',
+    NOT_EXPORT_READY: 'var(--clr-danger-50)',
+  };
+
+  /** Prefer server `_meta` readiness; fall back to local calc for demo theater only. */
+  function scoreReportFromMetaOrLocal(violations, meta) {
+    if (meta && typeof meta.readinessScore === 'number' && meta.band) {
+      return {
+        score: meta.readinessScore,
+        band: {
+          key: meta.band,
+          label: meta.bandLabel || meta.band,
+          color: BAND_COLORS[meta.band] || 'var(--clr-warning-50)',
+          desc: meta.bandDesc || '',
+        },
+        pillarScores: meta.pillarScores || {},
+        fromServer: true,
+        pipelineReady: meta.pipelineReady === true,
+        exportAuthorized: meta.exportAuthorized === true,
+        released: meta.released === true || meta.exportAuthorized === true,
+        humanReviewRequired: meta.humanReviewRequired === true,
+        humanReview: meta.humanReview || null,
+        truncated: !!(meta.truncation && meta.truncation.truncated),
+      };
+    }
+    const local = calculateFDAReadinessScore(violations);
+    return { ...local, fromServer: false, pipelineReady: false };
+  }
 
   function calculateFDAReadinessScore(violations) {
     const pillarScores = { product_classification: 100, labeling_compliance: 100, ingredient_safety: 100, manufacturing_compliance: 100, import_admissibility: 100 };
@@ -1342,10 +1521,10 @@ document.addEventListener('DOMContentLoaded', () => {
     Object.keys(PILLAR_WEIGHTS).forEach(p => { totalScore += pillarScores[p] * PILLAR_WEIGHTS[p]; });
     totalScore = Math.round(totalScore);
     let band;
-    if (totalScore >= 85) band = { label: "EXPORT READY", color: "var(--clr-success-50)", desc: "Minor documentation gaps only. Proceed with FDA registration." };
-    else if (totalScore >= 65) band = { label: "CONDITIONAL READY", color: "var(--clr-warning-50)", desc: "Moderate gaps. Resolve HIGH items before shipping." };
-    else if (totalScore >= 40) band = { label: "SIGNIFICANT REMEDIATION REQUIRED", color: "orange", desc: "Major labeling/ingredient/cGMP gaps. 3–6 month remediation timeline required." };
-    else band = { label: "NOT EXPORT READY", color: "var(--clr-danger-50)", desc: "Critical violations present. Extremely high risk of customs detention or seizure." };
+    if (totalScore >= 85) band = { key: 'EXPORT_READY', label: "EXPORT READY", color: "var(--clr-success-50)", desc: "Minor documentation gaps only. Proceed with FDA registration." };
+    else if (totalScore >= 65) band = { key: 'CONDITIONAL_READY', label: "CONDITIONAL READY", color: "var(--clr-warning-50)", desc: "Moderate gaps. Resolve HIGH items before shipping." };
+    else if (totalScore >= 40) band = { key: 'SIGNIFICANT_REMEDIATION', label: "SIGNIFICANT REMEDIATION REQUIRED", color: "orange", desc: "Major labeling/ingredient/cGMP gaps. 3–6 month remediation timeline required." };
+    else band = { key: 'NOT_EXPORT_READY', label: "NOT EXPORT READY", color: "var(--clr-danger-50)", desc: "Critical violations present. Extremely high risk of customs detention or seizure." };
     return { score: totalScore, band, pillarScores };
   }
 
@@ -2042,7 +2221,7 @@ ${sorted.length ? sorted.map(v => `<div class="violation-card" style="border-lef
     const r = state.lastReport;
     const c = r.classification || {};
     const violations = r.violations || [];
-    const scoreReport = calculateFDAReadinessScore(violations);
+    const scoreReport = scoreReportFromMetaOrLocal(violations, r._meta);
     const sorted = [...violations].sort((a, b) =>
       ({ CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }[b.severity] - { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }[a.severity]));
     const bandColor = scoreReport.score >= 85 ? '#16a34a' : scoreReport.score >= 65 ? '#f59e0b' : scoreReport.score >= 40 ? '#f97316' : '#ef4444';
@@ -2086,11 +2265,16 @@ ${sorted.length ? sorted.map(v => `<div class="violation-card" style="border-lef
     const model = r._meta && r._meta.model ? `${providerLabel} — ${r._meta.model}` : providerLabel;
     const marketLabel = (r._meta && r._meta.marketLabel) || 'Export';
     const categoryLabel = (r._meta && r._meta.categoryLabel) || '';
+    const metaBits = [];
+    if (r._meta && r._meta.pipelineReady) metaBits.push('pipelineReady');
+    if (r._meta && r._meta.humanReviewRequired) metaBits.push('human review required');
+    if (r._meta && r._meta.truncation && r._meta.truncation.truncated) metaBits.push('dossier truncated');
+    const metaNote = metaBits.length ? ` &nbsp;|&nbsp; ${metaBits.join(' · ')}` : '';
 
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>APEX Compliance Report — ${esc(r.productName)}</title>
 <style>${REPORT_CSS}</style></head><body>
 <h1>APEX Compliance Report <span style="font-size:0.8rem;color:#0ea5e9;font-weight:400">[AI ANALYSIS]</span></h1>
-<p class="subtitle">Product: <strong>${esc(r.productName)}</strong> &nbsp;|&nbsp; Market: <strong>${esc(marketLabel)}</strong>${categoryLabel ? ` &nbsp;|&nbsp; Category: ${esc(categoryLabel)}` : ''} &nbsp;|&nbsp; Documents: ${esc(docNames)} &nbsp;|&nbsp; Engine: ${esc(model)} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}</p>
+<p class="subtitle">Product: <strong>${esc(r.productName)}</strong> &nbsp;|&nbsp; Market: <strong>${esc(marketLabel)}</strong>${categoryLabel ? ` &nbsp;|&nbsp; Category: ${esc(categoryLabel)}` : ''} &nbsp;|&nbsp; Documents: ${esc(docNames)} &nbsp;|&nbsp; Engine: ${esc(model)} &nbsp;|&nbsp; Score source: ${scoreReport.fromServer ? 'server _meta' : 'local demo'} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}${metaNote}</p>
 
 <div class="summary"><strong>Executive Summary</strong><br>${esc(r.productSummary)}</div>
 

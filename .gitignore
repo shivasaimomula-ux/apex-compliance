@@ -1,6 +1,7 @@
-# Secrets & env
+# Secrets & env (Task T24 / Audit #23)
 .env
 .env.*
+.env.txt
 !.env.example
 *.pem
 *.key
@@ -20,3 +21,6 @@ venv/
 .claude/
 *.log
 untitled folder/
+
+# Human Review Gate store (local sign-offs)
+data/
