@@ -31,6 +31,10 @@ import {
   validateReviewSubmission,
   JURISDICTION_DISCLAIMER,
 } from './lib/human-review.js';
+import {
+  extendProvenanceForE,
+  extractInboundProvenance,
+} from './lib/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const reviewStore = new HumanReviewStore(
@@ -57,6 +61,7 @@ function applyReadinessToReport(report, humanReview = null) {
     ...readiness,
     reportId: meta.reportId || null,
     complianceHash: meta.complianceHash || computeComplianceHash(report),
+    provenanceThread: meta.provenanceThread || null,
   };
   return report;
 }
@@ -675,6 +680,15 @@ app.post('/api/analyze', async (req, res) => {
       ...readiness,
     };
     report._meta.complianceHash = computeComplianceHash(report);
+    const dossierObj =
+      body.dossier && typeof body.dossier === 'object' && !Array.isArray(body.dossier)
+        ? body.dossier
+        : null;
+    const inboundThread = extractInboundProvenance(body, dossierObj);
+    report._meta.provenanceThread = extendProvenanceForE(inboundThread, {
+      complianceHash: report._meta.complianceHash,
+      reportId,
+    });
     const gate = validateAnalyzeResponse(report);
     if (!gate.ok) {
       return res.status(gate.status).json(gate.body);

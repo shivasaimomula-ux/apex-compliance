@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dashboardReleaseStatus: document.getElementById('dashboard-release-status'),
     humanReviewForm: document.getElementById('human-review-form'),
     humanReviewStatus: document.getElementById('human-review-status'),
+    provenanceThreadStatus: document.getElementById('provenance-thread-status'),
     humanReviewId: document.getElementById('human-review-id'),
     humanReviewName: document.getElementById('human-review-name'),
     humanReviewDisclaimer: document.getElementById('human-review-disclaimer'),
@@ -505,6 +506,23 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateHumanReviewPanel(meta) {
     const m = meta || {};
     const reportId = m.reportId || (state.lastReport && state.lastReport._meta && state.lastReport._meta.reportId);
+    if (DOM.provenanceThreadStatus) {
+      const pt = m.provenanceThread || {};
+      const chain =
+        pt.chain ||
+        [
+          pt.specId ? `spec_id=${pt.specId}` : null,
+          pt.formulationId ? `formulation_id=${pt.formulationId}` : null,
+          pt.skuId ? `sku_id=${pt.skuId}` : null,
+          pt.dossierHash ? `dossier_hash=${String(pt.dossierHash).slice(0, 12)}…` : null,
+          pt.complianceHash ? `compliance_hash=${String(pt.complianceHash).slice(0, 12)}…` : null,
+        ]
+          .filter(Boolean)
+          .join(' → ');
+      DOM.provenanceThreadStatus.textContent = chain
+        ? `Provenance: ${chain}`
+        : 'Provenance thread appears here after analyze (spec → formulation → sku → dossier_hash → compliance_hash).';
+    }
     if (DOM.dashboardReleaseStatus) {
       if (m.released === true || m.exportAuthorized === true) {
         DOM.dashboardReleaseStatus.textContent = 'released (human review on file)';
