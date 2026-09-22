@@ -756,6 +756,72 @@ app.post('/api/human-review', (req, res) => {
   });
 });
 
+/**
+ * N4.1 demo helper — seed a labeled EXPORT_READY report with released=false
+ * so the Human Review Gate can be exercised in a ~15-min partner demo without
+ * waiting on a full AI analyze. Not a real compliance determination.
+ */
+app.post('/api/human-review/demo-export-ready', (req, res) => {
+  const reportId = createReportId();
+  const report = {
+    productName: 'Demo Shallaki–Haridra Joint Support (EXPORT_READY seed)',
+    productSummary:
+      'Demo-only clean score for Human Review Gate rehearsal. Not a live corridor package.',
+    classification: {
+      verdict: 'DIETARY_SUPPLEMENT',
+      title: 'Dietary Supplement (demo)',
+      governing_law: 'DSHEA (demo)',
+      rationale: 'Demo seed with zero violations for gate UX only.',
+    },
+    violations: [],
+    claimAnalysis: [],
+    ingredientFindings: [],
+    documentsAssessed: [{ name: 'demo-seed.txt', type: 'OTHER', summary: 'N4.1 demo seed' }],
+    _meta: {
+      market: 'US',
+      marketLabel: 'United States (FDA)',
+      category: 'SUPPLEMENT',
+      categoryLabel: 'Dietary Supplement',
+      analyzedAt: new Date().toISOString(),
+      reportId,
+      demoSeed: true,
+      provider: 'demo',
+      model: 'n4.1-demo-export-ready',
+    },
+  };
+  const readiness = buildReadinessMeta({
+    violations: report.violations,
+    truncation: { truncated: false, truncationLimit: DOC_CHAR_LIMIT, truncatedDocuments: [], note: null },
+    categoryResolution: { resolved: 'SUPPLEMENT', source: 'demo' },
+    marketResolution: { resolved: 'US', source: 'demo' },
+    humanReview: null,
+    policy: HUMAN_REVIEW_POLICY,
+  });
+  report._meta = { ...report._meta, ...readiness };
+  report._meta.complianceHash = computeComplianceHash(report);
+  report._meta.provenanceThread = extendProvenanceForE(
+    {
+      schemaVersion: '1.0.0',
+      specId: 'F-DEMO-GATE-001',
+      formulationId: 'F-DEMO-GATE-001',
+      skuId: 'SKU-DEMO-GATE-001',
+      dossierHash: 'demo-dossier-hash',
+      stages: ['F', 'A', 'B', 'C', 'E'],
+    },
+    { complianceHash: report._meta.complianceHash, reportId },
+  );
+  reviewStore.saveReportSnapshot(reportId, report);
+  return res.json({
+    ok: true,
+    reportId,
+    band: report._meta.band,
+    released: report._meta.released,
+    humanReviewRequired: report._meta.humanReviewRequired,
+    _meta: report._meta,
+    report,
+  });
+});
+
 /** Fetch stored report + review state (same `_meta` contract as analyze). */
 app.get('/api/human-review/:reportId', (req, res) => {
   const reportId = String(req.params.reportId || '').trim();
