@@ -35,6 +35,12 @@ import {
   extendProvenanceForE,
   extractInboundProvenance,
 } from './lib/provenance.js';
+import {
+  anthropicKeyOk,
+  nvidiaKeyOk,
+  resolveProvider,
+  COST_ORDER,
+} from './lib/provider.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const reviewStore = new HumanReviewStore(
@@ -115,26 +121,6 @@ const MODEL = process.env.APEX_MODEL || 'claude-opus-4-8';              // Anthr
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'nvidia/llama-3.3-nemotron-super-49b-v1';
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MAX_TOKENS = parseInt(process.env.NVIDIA_MAX_TOKENS || '8192', 10);
-
-function anthropicKeyOk() {
-  const k = process.env.ANTHROPIC_API_KEY;
-  return typeof k === 'string' && k.startsWith('sk-ant-');
-}
-function nvidiaKeyOk() {
-  const k = process.env.NVIDIA_API_KEY;
-  return typeof k === 'string' && k.startsWith('nvapi-');
-}
-
-// Resolve the active provider: explicit APEX_PROVIDER wins (if its key is set),
-// otherwise prefer NVIDIA, then Anthropic (Claude). Returns null when no usable key.
-function resolveProvider() {
-  const p = (process.env.APEX_PROVIDER || '').toLowerCase();
-  if (p === 'nvidia' && nvidiaKeyOk()) return 'nvidia';
-  if (p === 'anthropic' && anthropicKeyOk()) return 'anthropic';
-  if (nvidiaKeyOk()) return 'nvidia';
-  if (anthropicKeyOk()) return 'anthropic';
-  return null;
-}
 
 function activeModel() {
   return resolveProvider() === 'nvidia' ? NVIDIA_MODEL : MODEL;
@@ -714,6 +700,7 @@ app.get('/api/health', (_req, res) => {
     model: activeModel(),
     providers: { anthropic: anthropicKeyOk(), nvidia: nvidiaKeyOk() },
     models: { anthropic: MODEL, nvidia: NVIDIA_MODEL },
+    cost_order: COST_ORDER,
     markets: MARKETS,
     readinessContract: true,
     docCharLimit: DOC_CHAR_LIMIT,
