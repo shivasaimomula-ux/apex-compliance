@@ -138,6 +138,50 @@
 
         <!-- 1. DASHBOARD VIEW -->
         <section class="view-panel active" id="view-dashboard" aria-label="Compliance Summary">
+
+          <!-- Human Review Gate (T20 / N4.1) — pin above score cards for 15-min demo -->
+          <div class="glass-card" id="human-review-gate-card" style="margin-bottom: 1rem; border: 1px solid var(--border-color);">
+            <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:flex-start;">
+              <div>
+                <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 0.35rem;">Human Review Gate</h2>
+                <p id="human-review-status" style="font-size: var(--fs-sm); margin-bottom: 0.5rem; color: var(--text-muted, #64748b);">
+                  Analyze a dossier first — or seed a <strong>demo EXPORT_READY</strong> report. Named sign-off is required before <code>released</code>.
+                </p>
+                <p id="provenance-thread-status" style="font-size: var(--fs-xs); margin-bottom: 0.75rem; color: var(--text-muted, #64748b); font-family: ui-monospace, monospace;">
+                  Provenance thread appears here after analyze (spec → formulation → sku → dossier_hash → compliance_hash).
+                </p>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:stretch;">
+                <button type="button" class="btn btn-secondary" id="human-review-demo-seed" style="font-size:var(--fs-xs);">Seed demo EXPORT_READY</button>
+                <button type="button" class="btn btn-secondary" id="human-review-demo-prefill" style="font-size:var(--fs-xs);">Prefill demo reviewer</button>
+              </div>
+            </div>
+            <form id="human-review-form" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 42rem;">
+              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
+                Reviewer ID
+                <input id="human-review-id" type="text" autocomplete="username" required
+                  placeholder="e.g. emp-1042"
+                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
+              </label>
+              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
+                Reviewer name
+                <input id="human-review-name" type="text" autocomplete="name" required
+                  placeholder="Full name"
+                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
+              </label>
+              <label style="font-size: var(--fs-xs); display:flex; gap:0.5rem; align-items:flex-start;">
+                <input id="human-review-disclaimer" type="checkbox" required style="margin-top:0.2rem;" />
+                <span id="human-review-disclaimer-text">
+                  I acknowledge that export-readiness language is jurisdiction-specific and that this score is not a legal determination.
+                </span>
+              </label>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button type="submit" class="btn btn-primary" id="human-review-submit" data-decision="approve">Approve / sign-off</button>
+                <button type="button" class="btn btn-secondary" id="human-review-reject">Reject</button>
+              </div>
+            </form>
+          </div>
+
           <div class="dashboard-grid">
 
             <!-- Overall Score Ring Gauge Widget -->
@@ -205,40 +249,6 @@
               </div>
             </div>
 
-          </div>
-
-          <!-- Human Review Gate (Task T20) — independent E UI; consumes server _meta -->
-          <div class="glass-card" id="human-review-gate-card" style="margin-top: 1rem;">
-            <h2 style="font-size: var(--fs-lg); font-weight:700; margin-bottom: 0.5rem;">Human Review Gate</h2>
-            <p id="human-review-status" style="font-size: var(--fs-sm); margin-bottom: 1rem; color: var(--text-muted, #64748b);">
-              Analyze a dossier first. EXPORT READY scores require a named sign-off before <code>released</code>.
-            </p>
-            <p id="provenance-thread-status" style="font-size: var(--fs-xs); margin-bottom: 1rem; color: var(--text-muted, #64748b); font-family: ui-monospace, monospace;">
-              Provenance thread appears here after analyze (spec → formulation → sku → dossier_hash → compliance_hash).
-            </p>
-            <form id="human-review-form" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 42rem;">
-              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
-                Reviewer ID
-                <input id="human-review-id" type="text" autocomplete="username" required
-                  placeholder="e.g. emp-1042"
-                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
-              </label>
-              <label style="font-size: var(--fs-sm); display:flex; flex-direction:column; gap:0.25rem;">
-                Reviewer name
-                <input id="human-review-name" type="text" autocomplete="name" required
-                  placeholder="Full name"
-                  style="padding:0.5rem; border-radius:6px; border:1px solid var(--border-color); background: var(--bg-primary, transparent); color: inherit;" />
-              </label>
-              <label style="font-size: var(--fs-xs); display:flex; gap:0.5rem; align-items:flex-start;">
-                <input id="human-review-disclaimer" type="checkbox" required style="margin-top:0.2rem;" />
-                <span id="human-review-disclaimer-text">
-                  I acknowledge that export-readiness language is jurisdiction-specific and that this score is not a legal determination.
-                </span>
-              </label>
-              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                <button type="submit" class="btn btn-primary" id="human-review-submit">Submit sign-off</button>
-              </div>
-            </form>
           </div>
 
           <!-- Priority Actions Remediation Checklist -->
