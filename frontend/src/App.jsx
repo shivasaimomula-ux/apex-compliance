@@ -129,8 +129,8 @@ export default function App() {
         setAiEnabled(enabled);
         setAiStatusText(
           enabled
-            ? `AI analysis online — powered by ${data.model || 'Claude'}`
-            : 'AI engine reachable, but ANTHROPIC_API_KEY is not set. Using offline rule-based analysis.'
+            ? `AI analysis online — powered by ${data.model || 'Gemini 4 Hydrogen'}`
+            : 'AI engine reachable, but GEMINI_API_KEY is not set. Using offline rule-based analysis.'
         );
       } catch {
         setAiEnabled(false);
@@ -242,7 +242,7 @@ export default function App() {
     }
 
     setAnalyzing(true);
-    setAiStatusText('🧠 Claude is analyzing your dossier...');
+    setAiStatusText('🧠 Gemini is analyzing your dossier...');
 
     try {
       const res = await fetch('/api/analyze', {
@@ -677,7 +677,7 @@ ${
       : '<p style="color:#94a3b8;font-size:13px">No ingredient findings.</p>';
 
     const docNames = (lastReportDocs || []).map((d) => d.name).join(', ') || '—';
-    const model = r._meta?.model || 'Claude';
+    const model = r._meta?.model || 'Gemini 4 Hydrogen';
 
     const REPORT_CSS = `body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:2rem;color:#1e293b;background:white;line-height:1.55}h1{font-size:1.6rem;color:#0f172a;margin-bottom:0.25rem}.subtitle{color:#64748b;font-size:0.85rem;margin-bottom:1.5rem}.summary{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.92rem}.score-box{display:inline-block;padding:1.25rem 2rem;border-radius:12px;background:#f8fafc;text-align:center;margin-bottom:1.5rem;vertical-align:top}.score-num{font-size:2.6rem;font-weight:800;line-height:1}.verdict-box{display:inline-block;padding:1rem 1.5rem;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;margin:0 0 1.5rem 1rem;vertical-align:top;max-width:60%}.pillars{display:grid;grid-template-columns:repeat(5,1fr);gap:0.6rem;margin-bottom:1.5rem}.pillar{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:0.6rem;text-align:center}.pillar-name{font-size:10px;color:#64748b;margin-bottom:0.25rem}.pillar-score{font-size:1.1rem;font-weight:700}h2{font-size:1.1rem;border-bottom:2px solid #e2e8f0;padding-bottom:0.5rem;margin:1.75rem 0 1rem}.card{border-left:4px solid #888;padding:0.85rem 1rem;margin-bottom:0.85rem;background:#f9fafb;border-radius:0 8px 8px 0}.badge{display:inline-block;padding:0.2rem 0.6rem;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;margin-right:0.5rem}.gate{font-size:13px;margin:0.2rem 0;color:#334155}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:1rem}td,th{border:1px solid #e2e8f0;padding:0.4rem 0.6rem;text-align:left;vertical-align:top}th{background:#f1f5f9}.orig{color:#b91c1c}.reframe{color:#15803d}footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8}@media print{body{padding:1rem}}`;
 
