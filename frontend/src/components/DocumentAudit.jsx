@@ -275,7 +275,7 @@ export default function DocumentAudit({
                   disabled={analyzing}
                   className="w-full bg-brand-teal-50 hover:bg-teal-600 disabled:bg-teal-800 text-white font-bold py-3 rounded-lg text-xs transition duration-200 cursor-pointer shadow-lg shadow-teal-500/10"
                 >
-                  {analyzing ? '🧠 Analyzing dossier with Claude…' : '🤖 Analyze Full Dossier with AI'}
+                  {analyzing ? '🧠 Analyzing dossier with Gemini…' : '🤖 Analyze Full Dossier with AI'}
                 </button>
               </div>
             )}

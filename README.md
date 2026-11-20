@@ -2,7 +2,7 @@
 
 AI-driven FDA / EU / Gulf compliance analysis for Indian Ayurvedic & nutraceutical exporters.
 Upload a **product dossier** (label + Certificate of Analysis + Master Manufacturing Record,
-or any subset, or pasted text), and Claude produces a structured compliance report:
+or any subset, or pasted text), and Gemini produces a structured compliance report:
 classification verdict, a weighted FDA Readiness Score, prioritized violations with CFR
 citations, claim reframing, and ingredient flags.
 
@@ -12,7 +12,7 @@ citations, claim reframing, and ingredient flags.
 npm install
 
 # Enable real AI analysis (recommended):
-export ANTHROPIC_API_KEY=sk-ant-...      # get one at https://console.anthropic.com
+export GEMINI_API_KEY=AIza...            # get one at https://aistudio.google.com/apikey
 npm start                                # → http://localhost:8000
 ```
 
@@ -28,9 +28,9 @@ analysis.
 
 ## How it works
 
-- **`server.js`** — Express server. Serves the static frontend and exposes `POST /api/analyze`,
-  which sends the dossier to **Claude Opus 4.8** with a regulatory-expert system prompt and a
-  strict JSON schema (`output_config.format`), returning a structured report. `GET /api/health`
+- **`backend/server.js`** — Express server. Serves the built frontend and exposes `POST /api/analyze`,
+  which sends the dossier to **Gemini 4 Hydrogen** (`gemini-4-hydrogen`) with a regulatory-expert
+  system prompt and a strict JSON schema, returning a structured report. `GET /api/health`
   reports whether AI mode is enabled.
 - **Frontend** (`index.html`, `app.js`, `mock_data.js`, `index.css`) — vanilla JS. PDF text is
   extracted in-browser via PDF.js, bundled into a dossier, and sent to the backend. The returned
@@ -41,8 +41,8 @@ analysis.
 
 | Variable            | Default            | Purpose                          |
 | ------------------- | ------------------ | -------------------------------- |
-| `ANTHROPIC_API_KEY` | —                  | Enables AI analysis              |
-| `PORT`              | `8000`             | Server port                      |
-| `APEX_MODEL`        | `claude-opus-4-8`  | Model used for analysis          |
+| `GEMINI_API_KEY`    | —                    | Enables AI analysis. `GOOGLE_API_KEY` is also accepted. Put it in `backend/.env` or export it. |
+| `PORT`              | `8000`               | Server port                      |
+| `APEX_MODEL`        | `gemini-4-hydrogen`  | Model used for analysis          |
 
 > Informational research tool only — not a substitute for licensed regulatory or legal counsel.

@@ -8,26 +8,35 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import Anthropic from '@anthropic-ai/sdk';
-
-// Load environment variables from .env
-dotenv.config();
+import { GoogleGenAI } from '@google/genai';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 8000;
-const MODEL = process.env.APEX_MODEL || 'claude-opus-4-8';
 
-// A usable key must exist and look real (Anthropic keys start with "sk-ant-").
+// Load backend/.env without overriding a key already exported in the shell.
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const PORT = process.env.PORT || 8000;
+const MODEL = process.env.APEX_MODEL || 'gemini-4-hydrogen';
+
+// Gemini API keys from Google AI Studio. Ignore placeholders and leftover Anthropic keys.
+function geminiApiKey() {
+  const k = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (typeof k !== 'string') return '';
+  const trimmed = k.trim();
+  if (trimmed.length < 20) return '';
+  if (/^(your[-_]|sk-ant-|xxx|todo|changeme)/i.test(trimmed)) return '';
+  return trimmed;
+}
+
 function hasUsableKey() {
-  const k = process.env.ANTHROPIC_API_KEY;
-  return typeof k === 'string' && k.startsWith('sk-ant-');
+  return geminiApiKey().length > 0;
 }
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Compliance analysis schema — Claude is constrained to return exactly this.
+// Compliance analysis schema — Gemini is constrained to return exactly this.
 const REPORT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -175,8 +184,14 @@ const SYSTEM_PROMPT = `You are a senior U.S. FDA regulatory consultant specializ
 
 You will receive a product DOSSIER assembled from any combination of: uploaded document text (labels, Certificates of Analysis, Master Manufacturing Records), pasted text, and structured intake fields. Analyze it as a single product and produce a rigorous, defensible compliance assessment.
 
+The products under review are nutraceuticals. Assess every orally ingested powder, churna, capsule, tablet, or liquid of herbs, foods, or botanicals as a U.S. dietary supplement under DSHEA. The classification verdict for that article is DIETARY_SUPPLEMENT. Do not classify it as a drug and do not return UNAPPROVED_NEW_DRUG. In the classification title, call the pathway a nutraceutical (dietary supplement).
+
+Disease, treatment, cure, prevention, and OTC-drug wording (including expectorant, mucolytic, and anti-inflammatory) are labeling defects on that nutraceutical. Record them as violations, map them to labeling_compliance, and rewrite them in claimAnalysis as lawful structure/function claims. Say that the wording has to come off the label and the monograph before the nutraceutical can ship. Do not use those claims to change the verdict away from DIETARY_SUPPLEMENT.
+
+Use UNAPPROVED_NEW_DRUG only when the article is not an oral nutraceutical, for example an injectable or a product the dossier states is a medicine and not a supplement.
+
 Apply real regulatory knowledge, including:
-- Drug vs. dietary supplement vs. conventional food classification (21 USC §321(g); 21 CFR §101, §111, §117). Disease/treatment/cure/prevention claims => unapproved new drug.
+- Dietary supplement identity, labeling, and claims (21 USC §321(ff); 21 USC §343(r)(6); 21 CFR §101.36; 21 CFR §101.93). Disease claims are unlawful on a nutraceutical and must be rewritten, not used to reclassify the product as a drug.
 - Structure/function claims and the mandatory DSHEA disclaimer (21 CFR §101.93). Reframe disease claims into lawful structure/function language.
 - New Dietary Ingredient (NDI) notification requirements (21 USC §350b) for botanicals not marketed in the US before Oct 15, 1994.
 - GRAS status, and PROHIBITED ingredients: metallic bhasmas (Swarna/gold, Abhraka, Tamra, Naga, Vanga, Hartala/arsenic, Manahshila), Ephedra, Aristolochic acid; RESTRICTED: Kava, Comfrey, Aconite, etc.
@@ -188,7 +203,7 @@ Apply real regulatory knowledge, including:
 Rules:
 - Ground every finding in a specific citation. Do not invent regulations.
 - Map each violation to exactly one readiness pillar.
-- Use severity honestly: CRITICAL = customs detention / seizure / unapproved drug; HIGH = major labeling/ingredient/cGMP gap; MEDIUM = correctable documentation; LOW = minor/best-practice.
+- Use severity honestly: CRITICAL = a gap that would detain the shipment or make the current labeling unlawful for a nutraceutical (disease claims left in place, prohibited ingredients, no heavy-metal COA on an import-alert commodity); HIGH = major labeling, ingredient, or cGMP gap; MEDIUM = correctable documentation; LOW = minor or best-practice.
 - If the dossier is thin or ambiguous, classify as REQUIRES_REVIEW and flag what is missing rather than guessing.
 - Be specific to the actual product in the dossier; never return generic boilerplate.
 - This is informational analysis, not legal advice — but write it at the rigor a regulatory attorney would expect.`;
@@ -210,7 +225,7 @@ function buildUserPrompt({ productName, documents, formText }) {
   }
 
   parts.push(
-    '\nAnalyze this dossier and return the structured compliance report. Assess US FDA readiness as the primary focus.'
+    '\nAnalyze this dossier as a nutraceutical and return the structured compliance report. The U.S. pathway is a dietary supplement under DSHEA. Verdict must be DIETARY_SUPPLEMENT. Do not classify the product as a drug. Assess U.S. FDA readiness of that nutraceutical as the primary focus, and rewrite any disease or OTC claims so the product can stay on the nutraceutical pathway.'
   );
   return parts.join('\n');
 }
@@ -220,7 +235,7 @@ app.post(['/api/analyze', '/analyze'], async (req, res) => {
     return res.status(503).json({
       error: 'no_api_key',
       message:
-        'No valid Anthropic API key is set. Add your sk-ant-... key to the .env file and restart.',
+        'No valid Gemini API key is set. Add GEMINI_API_KEY to backend/.env and restart.',
     });
   }
 
@@ -233,57 +248,59 @@ app.post(['/api/analyze', '/analyze'], async (req, res) => {
     });
   }
 
-  const client = new Anthropic();
+  const ai = new GoogleGenAI({ apiKey: geminiApiKey() });
 
   try {
-    const response = await client.messages.create({
+    const response = await ai.models.generateContent({
       model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      output_config: {
-        effort: 'high',
-        format: {
-          type: 'json_schema',
-          schema: REPORT_SCHEMA,
-        },
+      contents: buildUserPrompt({ productName, documents, formText }),
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        responseJsonSchema: REPORT_SCHEMA,
+        thinkingConfig: { thinkingLevel: 'HIGH' },
       },
-      system: SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: buildUserPrompt({ productName, documents, formText }) },
-      ],
     });
 
-    if (response.stop_reason === 'refusal') {
-      return res.status(422).json({
-        error: 'refused',
-        message: 'The model declined to analyze this content.',
-      });
-    }
-
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (!textBlock) {
+    const text = typeof response.text === 'string' ? response.text.trim() : '';
+    if (!text) {
+      const reason = response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason;
+      if (reason && reason !== 'STOP') {
+        return res.status(422).json({
+          error: 'refused',
+          message: 'The model declined to analyze this content.',
+        });
+      }
       return res.status(502).json({ error: 'no_output', message: 'No analysis returned.' });
     }
 
     let report;
     try {
-      report = JSON.parse(textBlock.text);
+      report = JSON.parse(text);
     } catch {
       return res
         .status(502)
         .json({ error: 'parse_error', message: 'Could not parse the analysis output.' });
     }
 
+    const usage = response.usageMetadata;
     report._meta = {
-      model: response.model,
-      usage: response.usage,
+      model: response.modelVersion || MODEL,
+      usage: usage
+        ? {
+            input_tokens: usage.promptTokenCount,
+            output_tokens: usage.candidatesTokenCount,
+            total_tokens: usage.totalTokenCount,
+          }
+        : undefined,
       analyzedAt: new Date().toISOString(),
     };
     res.json(report);
   } catch (err) {
-    const status = err?.status || 500;
+    const status = Number(err?.status);
+    const httpStatus = Number.isInteger(status) && status >= 400 && status < 600 ? status : 500;
     console.error('Analysis error:', err?.message || err);
-    res.status(status).json({
+    res.status(httpStatus).json({
       error: 'analysis_failed',
       message: err?.message || 'Unexpected error during analysis.',
     });
@@ -312,6 +329,6 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   const aiState = hasUsableKey()
     ? `AI analysis ENABLED (${MODEL})`
-    : 'AI analysis DISABLED — add your sk-ant-... key to the .env file to enable';
+    : 'AI analysis DISABLED — add GEMINI_API_KEY to backend/.env to enable';
   console.log(`APEX Compliance Platform running at http://localhost:${PORT}  •  ${aiState}`);
 });
